@@ -50,6 +50,20 @@ enum HTTPSupport {
         return String(data: body.prefix(500), encoding: .utf8)
     }
 
+    /// Iterates a response body as server-sent events, preserving the blank-line delimiters
+    /// that `AsyncBytes.lines` would drop. `handle` returns true to stop early.
+    static func forEachEvent(in bytes: URLSession.AsyncBytes, _ handle: (ServerSentEvent) throws -> Bool) async throws {
+        var splitter = LineSplitter()
+        var parser = SSELineParser()
+        for try await byte in bytes {
+            guard let line = splitter.feed(byte) else { continue }
+            try Task.checkCancellation()
+            if let event = parser.feed(line: line), try handle(event) { return }
+        }
+        if let line = splitter.flush(), let event = parser.feed(line: line), try handle(event) { return }
+        if let event = parser.flush() { _ = try handle(event) }
+    }
+
     static func mapTransportError(_ error: any Error) -> any Error {
         if error is CancellationError { return error }
         if let urlError = error as? URLError {

@@ -58,6 +58,23 @@ struct OpenAICompatibleRequestTests {
         let messages = try #require(body["messages"] as? [[String: Any]])
         #expect(messages.map { $0["role"] as? String } == ["system", "user"])
         #expect(body["stream"] as? Bool == true)
+        #expect(body["temperature"] == nil, "temperature must not be sent unless the user set one")
+    }
+
+    @Test func temperatureIsSentOnlyWhenConfiguredAndCanBeDropped() throws {
+        var configuration = OpenAICompatibleConfiguration(apiKey: "k", model: "m")
+        configuration.temperature = 0.2
+        let provider = OpenAICompatibleProvider(configuration: configuration)
+        let request = TranslationRequest(sourceText: "Hi", targetLanguage: .english)
+        #expect(try decode(provider.makeURLRequest(for: request))["temperature"] as? Double == 0.2)
+        #expect(try decode(provider.makeURLRequest(for: request, includeTemperature: false))["temperature"] == nil)
+    }
+
+    @Test func recognizesTemperatureRejections() {
+        let rejection = TranslationError.providerError(status: 400, message: "Unsupported value: 'temperature' does not support 0.2 with this model. Only the default (1) value is supported.")
+        #expect(OpenAICompatibleProvider.isTemperatureRejection(rejection))
+        #expect(!OpenAICompatibleProvider.isTemperatureRejection(.providerError(status: 400, message: "model not found")))
+        #expect(!OpenAICompatibleProvider.isTemperatureRejection(.providerError(status: 500, message: "temperature")))
     }
 
     @Test func cloudEndpointRequiresKey() async {

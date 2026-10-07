@@ -82,6 +82,9 @@ public struct TranslationCoordinator: Sendable {
             case .completed(var result):
                 if result.text.isEmpty { result.text = accumulator.text }
                 result.text = Self.cleanOutput(result.text)
+                guard !result.text.isEmpty else {
+                    throw TranslationError.invalidResponse("\(provider.displayName) returned an empty result.")
+                }
                 if result.modelName.isEmpty { result.modelName = lastModelName }
                 continuation.yield(.text(result.text))
                 continuation.yield(.completed(result))
@@ -89,6 +92,9 @@ public struct TranslationCoordinator: Sendable {
             }
         }
         // Provider finished without an explicit completion; synthesize one so the UI settles.
+        guard !accumulator.text.isEmpty else {
+            throw TranslationError.invalidResponse("\(provider.displayName) returned an empty result.")
+        }
         let result = TranslationResult(
             requestID: request.id,
             text: Self.cleanOutput(accumulator.text),

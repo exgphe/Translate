@@ -34,6 +34,30 @@ struct SSEParserTests {
     }
 }
 
+struct LineSplitterTests {
+    @Test func preservesEmptyLinesAndHandlesCRLF() {
+        var splitter = LineSplitter()
+        var lines: [String] = []
+        for byte in Array("data: a\n\ndata: b\r\n\r\ntail".utf8) {
+            if let line = splitter.feed(byte) { lines.append(line) }
+        }
+        let trailing = splitter.flush()
+        #expect(lines == ["data: a", "", "data: b", ""])
+        #expect(trailing == "tail")
+    }
+
+    @Test func sseEventsAreDelimitedByTheBlankLines() {
+        var splitter = LineSplitter()
+        var parser = SSELineParser()
+        var events: [ServerSentEvent] = []
+        for byte in Array("data: {\"a\":1}\n\ndata: {\"a\":2}\n\ndata: [DONE]\n\n".utf8) {
+            guard let line = splitter.feed(byte) else { continue }
+            if let event = parser.feed(line: line) { events.append(event) }
+        }
+        #expect(events.map(\.data) == ["{\"a\":1}", "{\"a\":2}", "[DONE]"])
+    }
+}
+
 struct AccumulatorTests {
     @Test func deltasAppendAndSnapshotsReplace() {
         var acc = StreamedTextAccumulator()
@@ -185,6 +209,14 @@ struct CoordinatorTests {
             return count
         }
         await #expect(throws: CancellationError.self) { try await task.value }
+    }
+
+    @Test func emptyResultIsAnError() async {
+        let provider = ScriptedProvider(events: [.started(modelName: "m")])
+        let request = TranslationRequest(sourceText: "Hi", targetLanguage: .english)
+        await #expect(throws: TranslationError.self) {
+            for try await _ in TranslationCoordinator().run(request, using: provider) {}
+        }
     }
 
     @Test func stripsEchoedWrapperTags() {

@@ -119,7 +119,6 @@ public struct AnthropicProvider: TranslationProvider {
             throw await HTTPSupport.error(for: http, bytes: bytes, providerName: displayName)
         }
 
-        var parser = SSELineParser()
         var modelName = configuration.model
         var usage = TokenUsage()
         var stopReason: String?
@@ -166,11 +165,7 @@ public struct AnthropicProvider: TranslationProvider {
             return false
         }
 
-        for try await line in bytes.lines {
-            try Task.checkCancellation()
-            if let event = parser.feed(line: line), try handle(event) { break }
-        }
-        if let event = parser.flush() { _ = try handle(event) }
+        try await HTTPSupport.forEachEvent(in: bytes, handle)
 
         if stopReason == "refusal" {
             throw TranslationError.refused("The service's safety system declined this request.")

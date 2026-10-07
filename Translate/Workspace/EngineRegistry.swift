@@ -119,11 +119,9 @@ final class EngineRegistry {
         guard availability.isAvailable else {
             return .failure(TranslationError.modelNotReady(availability.message ?? "Unavailable."))
         }
-        let request = TranslationRequest(
-            sourceText: "Hello, world.",
-            sourceLanguage: .explicit(.english),
-            targetLanguage: settings.targetLanguage == .english ? .simplifiedChinese : settings.targetLanguage
-        )
+        let sample = "Hello, world."
+        let target: LanguageCode = settings.targetLanguage == .english ? .simplifiedChinese : settings.targetLanguage
+        let request = TranslationRequest(sourceText: sample, sourceLanguage: .explicit(.english), targetLanguage: target)
         do {
             var text = ""
             var model = provider.displayName
@@ -134,7 +132,7 @@ final class EngineRegistry {
                 default: break
                 }
             }
-            return .success("\(model): “\(text)”")
+            return .success("Connected. \(model) translated “\(sample)” → “\(text)”")
         } catch {
             return .failure(error)
         }

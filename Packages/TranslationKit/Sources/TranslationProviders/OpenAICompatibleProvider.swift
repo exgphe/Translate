@@ -8,6 +8,8 @@ public struct OpenAICompatibleConfiguration: Hashable, Codable, Sendable {
     public var baseURL: URL
     public var apiKey: String
     public var model: String
+    /// Sent only when set. Many current models (OpenAI's gpt-5 family and later reasoning
+    /// models) reject any non-default temperature, so the default is to leave it to the server.
     public var temperature: Double?
 
     public init(
@@ -15,7 +17,7 @@ public struct OpenAICompatibleConfiguration: Hashable, Codable, Sendable {
         baseURL: URL = URL(string: "https://api.openai.com/v1")!,
         apiKey: String = "",
         model: String = "",
-        temperature: Double? = 0.2
+        temperature: Double? = nil
     ) {
         self.displayName = displayName
         self.baseURL = baseURL
@@ -72,7 +74,7 @@ public struct OpenAICompatibleProvider: TranslationProvider {
         }
     }
 
-    func makeURLRequest(for request: TranslationRequest) throws -> URLRequest {
+    func makeURLRequest(for request: TranslationRequest, includeTemperature: Bool = true) throws -> URLRequest {
         let prompt = TranslationPrompt(request: request)
         var body: [String: Any] = [
             "model": configuration.model,
@@ -83,7 +85,7 @@ public struct OpenAICompatibleProvider: TranslationProvider {
                 ["role": "user", "content": prompt.input],
             ],
         ]
-        if let temperature = configuration.temperature {
+        if includeTemperature, let temperature = configuration.temperature {
             body["temperature"] = temperature
         }
         var urlRequest = URLRequest(url: configuration.baseURL.appending(path: "chat/completions"))
@@ -99,28 +101,43 @@ public struct OpenAICompatibleProvider: TranslationProvider {
 
     private func stream(
         _ request: TranslationRequest,
-        continuation: AsyncThrowingStream<TranslationEvent, any Error>.Continuation
+        continuation: AsyncThrowingStream<TranslationEvent, any Error>.Continuation,
+        includeTemperature: Bool = true
     ) async throws {
-        let urlRequest = try makeURLRequest(for: request)
+        let urlRequest = try makeURLRequest(for: request, includeTemperature: includeTemperature)
         let (bytes, response) = try await session.bytes(for: urlRequest)
         guard let http = response as? HTTPURLResponse else {
             throw TranslationError.invalidResponse("Not an HTTP response.")
         }
         guard (200..<300).contains(http.statusCode) else {
-            throw await HTTPSupport.error(for: http, bytes: bytes, providerName: displayName)
+            let error = await HTTPSupport.error(for: http, bytes: bytes, providerName: displayName)
+            // Models that only accept the default temperature reject the parameter outright.
+            // Nothing has been streamed yet, so retrying once without it is safe.
+            if includeTemperature, configuration.temperature != nil, Self.isTemperatureRejection(error) {
+                try await stream(request, continuation: continuation, includeTemperature: false)
+                return
+            }
+            throw error
         }
 
-        var parser = SSELineParser()
         var modelName = configuration.model
         var usage = TokenUsage()
         var finishReason: String?
         var started = false
+        var sawText = false
+        var lastPayload = ""
 
-        func handle(_ event: ServerSentEvent) throws -> Bool {
-            let payload = event.data.trimmingCharacters(in: .whitespaces)
-            if payload == "[DONE]" { return true }
-            guard let data = payload.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        func extractText(_ value: Any?) -> String? {
+            if let text = value as? String { return text }
+            // Some servers send content as an array of parts.
+            if let parts = value as? [[String: Any]] {
+                let text = parts.compactMap { $0["text"] as? String }.joined()
+                return text.isEmpty ? nil : text
+            }
+            return nil
+        }
+
+        func handleObject(_ object: [String: Any]) throws {
             if let error = object["error"] as? [String: Any] {
                 throw TranslationError.providerError(status: 0, message: error["message"] as? String ?? "Unknown error")
             }
@@ -130,8 +147,13 @@ public struct OpenAICompatibleProvider: TranslationProvider {
                 continuation.yield(.started(modelName: modelName))
             }
             if let choices = object["choices"] as? [[String: Any]], let first = choices.first {
-                if let delta = first["delta"] as? [String: Any], let content = delta["content"] as? String {
+                if let delta = first["delta"] as? [String: Any], let content = extractText(delta["content"]) {
+                    sawText = sawText || !content.isEmpty
                     continuation.yield(.textDelta(content))
+                } else if let message = first["message"] as? [String: Any], let content = extractText(message["content"]) {
+                    // Non-streaming shape: the whole answer in one object.
+                    sawText = sawText || !content.isEmpty
+                    continuation.yield(.textSnapshot(content))
                 }
                 if let reason = first["finish_reason"] as? String { finishReason = reason }
             }
@@ -139,17 +161,35 @@ public struct OpenAICompatibleProvider: TranslationProvider {
                 usage.inputTokens = u["prompt_tokens"] as? Int
                 usage.outputTokens = u["completion_tokens"] as? Int
             }
-            return false
         }
 
-        for try await line in bytes.lines {
-            try Task.checkCancellation()
-            if let event = parser.feed(line: line), try handle(event) { break }
+        let contentType = http.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+        if contentType.contains("text/event-stream") || contentType.isEmpty || contentType.contains("application/x-ndjson") {
+            try await HTTPSupport.forEachEvent(in: bytes) { event in
+                let payload = event.data.trimmingCharacters(in: .whitespaces)
+                if payload == "[DONE]" { return true }
+                guard let data = payload.data(using: .utf8),
+                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+                lastPayload = String(payload.prefix(300))
+                try handleObject(object)
+                return false
+            }
+        } else {
+            // The server ignored `stream: true` and answered with one JSON document.
+            var body = Data()
+            for try await byte in bytes { body.append(byte) }
+            lastPayload = String(decoding: body.prefix(300), as: UTF8.self)
+            guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+                throw TranslationError.invalidResponse("Expected JSON or an event stream, got \(contentType.isEmpty ? "no content type" : contentType): \(lastPayload)")
+            }
+            try handleObject(object)
         }
-        if let event = parser.flush() { _ = try handle(event) }
 
         if finishReason == "content_filter" {
             throw TranslationError.refused("The service's content filter declined this request.")
+        }
+        guard sawText else {
+            throw TranslationError.invalidResponse("The service returned no text. Last payload: \(lastPayload.isEmpty ? "(empty body)" : lastPayload)")
         }
         continuation.yield(.completed(TranslationResult(
             requestID: request.id,
@@ -159,5 +199,10 @@ public struct OpenAICompatibleProvider: TranslationProvider {
             processingLocation: capabilities.processingLocation,
             usage: usage
         )))
+    }
+
+    static func isTemperatureRejection(_ error: TranslationError) -> Bool {
+        guard case .providerError(let status, let message) = error, status == 400 else { return false }
+        return message.localizedCaseInsensitiveContains("temperature")
     }
 }
