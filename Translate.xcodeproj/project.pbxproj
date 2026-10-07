@@ -6,6 +6,12 @@
 	objectVersion = 110;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		7A00000000000000000000C1 /* TranslationCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7A00000000000000000000B1 /* TranslationCore */; };
+		7A00000000000000000000C2 /* TranslationProviders in Frameworks */ = {isa = PBXBuildFile; productRef = 7A00000000000000000000B2 /* TranslationProviders */; };
+		7A00000000000000000000C3 /* ImagePipeline in Frameworks */ = {isa = PBXBuildFile; productRef = 7A00000000000000000000B3 /* ImagePipeline */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		0171BEFC307640B0004245DA /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -51,6 +57,9 @@
 		0171BEEB307640AE004245DA /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				7A00000000000000000000C1 /* TranslationCore in Frameworks */,
+				7A00000000000000000000C2 /* TranslationProviders in Frameworks */,
+				7A00000000000000000000C3 /* ImagePipeline in Frameworks */,
 			);
 		};
 		0171BEF8307640B0004245DA /* Frameworks */ = {
@@ -103,6 +112,11 @@
 				0171BEF0307640AE004245DA /* Translate */,
 			);
 			name = Translate;
+			packageProductDependencies = (
+				7A00000000000000000000B1 /* TranslationCore */,
+				7A00000000000000000000B2 /* TranslationProviders */,
+				7A00000000000000000000B3 /* ImagePipeline */,
+			);
 			productName = Translate;
 			productReference = 0171BEEE307640AE004245DA /* Translate.app */;
 			productType = "com.apple.product-type.application";
@@ -181,6 +195,9 @@
 			);
 			mainGroup = 0171BEE5307640AE004245DA;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				7A00000000000000000000A1 /* XCLocalSwiftPackageReference "Packages/TranslationKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0171BEEF307640AE004245DA /* Products */;
 			projectDirPath = "";
@@ -369,6 +386,7 @@
 				DEVELOPMENT_TEAM = C2RH9KA3U2;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -413,6 +431,7 @@
 				DEVELOPMENT_TEAM = C2RH9KA3U2;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -585,6 +604,28 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		7A00000000000000000000A1 /* XCLocalSwiftPackageReference "Packages/TranslationKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/TranslationKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		7A00000000000000000000B1 /* TranslationCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TranslationCore;
+		};
+		7A00000000000000000000B2 /* TranslationProviders */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TranslationProviders;
+		};
+		7A00000000000000000000B3 /* ImagePipeline */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ImagePipeline;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 0171BEE6307640AE004245DA /* Project object */;
 	validationLevel = 1;
