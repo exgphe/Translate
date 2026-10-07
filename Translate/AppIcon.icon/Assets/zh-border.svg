@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs><linearGradient id="gz" gradientUnits="userSpaceOnUse" x1="438" y1="372" x2="906" y2="908"><stop offset="0%" stop-color="#FF5C8A"/><stop offset="35%" stop-color="#FFB04D"/><stop offset="65%" stop-color="#B86BFF"/><stop offset="100%" stop-color="#3BD4FF"/></linearGradient></defs>
+<path fill="none" stroke="url(#gz)" stroke-width="22" stroke-linejoin="round" d="M556 372 H788 A118 118 0 0 1 906 490 V680 C906 788 892 838 872 892 C844 860 806 812 756 808 H556 A118 118 0 0 1 438 690 V490 A118 118 0 0 1 556 372 Z"/>
+</svg>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs><linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="118" y1="198" x2="586" y2="734"><stop offset="0%" stop-color="#FF5C8A"/><stop offset="35%" stop-color="#FFB04D"/><stop offset="65%" stop-color="#B86BFF"/><stop offset="100%" stop-color="#3BD4FF"/></linearGradient></defs>
+<path fill="none" stroke="url(#ga)" stroke-width="22" stroke-linejoin="round" d="M236 198 H468 A118 118 0 0 1 586 316 V516 A118 118 0 0 1 468 634 H268 C218 638 180 686 152 718 C132 664 118 614 118 506 V316 A118 118 0 0 1 236 198 Z"/>
+</svg>
