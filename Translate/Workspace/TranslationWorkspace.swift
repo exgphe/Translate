@@ -51,8 +51,11 @@ final class TranslationWorkspace {
 
     // Presentation flags
     var isImportingImage = false
+    var isPickingPhoto = false
     var isShowingContext = false
     var isShowingExplain = false
+    var isShowingSettings = false
+    var isShowingHistory = false
 
     @ObservationIgnored private var activeRequestID: UUID?
     @ObservationIgnored private var translationTask: Task<Void, Never>?

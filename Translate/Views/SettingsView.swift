@@ -3,7 +3,12 @@ import TranslationCore
 import TranslationProviders
 
 struct SettingsView: View {
+    #if !os(macOS)
+    @Environment(\.dismiss) private var dismiss
+    #endif
+
     var body: some View {
+        #if os(macOS)
         TabView {
             Tab("Engines", systemImage: "cpu") { EnginesSettingsView() }
             Tab("General", systemImage: "gearshape") { GeneralSettingsView() }
@@ -11,6 +16,33 @@ struct SettingsView: View {
         }
         .frame(width: 560)
         .frame(minHeight: 420)
+        #else
+        NavigationStack {
+            List {
+                NavigationLink {
+                    EnginesSettingsView().navigationTitle("Engines")
+                } label: {
+                    Label("Engines", systemImage: "cpu")
+                }
+                NavigationLink {
+                    GeneralSettingsView().navigationTitle("General")
+                } label: {
+                    Label("General", systemImage: "gearshape")
+                }
+                NavigationLink {
+                    PrivacySettingsView().navigationTitle("Privacy")
+                } label: {
+                    Label("Privacy", systemImage: "hand.raised")
+                }
+            }
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        #endif
     }
 }
 
@@ -25,6 +57,9 @@ struct EnginesSettingsView: View {
         Form {
             Section {
                 Picker("Default engine", selection: $settings.selectedEngineID) {
+                    if settings.selectedEngineID.isEmpty {
+                        Text("Not chosen").tag("")
+                    }
                     ForEach(registry.engines) { engine in
                         Text(engine.name).tag(engine.id)
                     }
@@ -54,15 +89,16 @@ struct AppleEngineSection: View {
             LabeledContent("Status") {
                 AvailabilityLabel(availability: engine?.availability ?? .unavailable("Checking…"))
             }
-            LabeledContent("Processing", value: "On device. Text never leaves this Mac.")
+            LabeledContent("Processing", value: "On device. Text never leaves this device.")
             let languages = AppleSystemModelProvider().supportedLanguages
             if !languages.isEmpty {
                 LabeledContent("Languages") {
                     Text(languages.map { $0.displayName() }.joined(separator: ", "))
                         .multilineTextAlignment(.trailing)
+                        .font(.callout)
                 }
             }
-            Text("The system model is managed by macOS. It is small, so very long texts must be split. The permissive guardrail profile is used because translation is a content transformation.")
+            Text("The system model is managed by the operating system. It is small, so very long texts must be split. The permissive guardrail profile is used because translation is a content transformation.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -82,6 +118,7 @@ struct AnthropicSection: View {
         @Bindable var settings = settings
         Section("Anthropic") {
             SecureField("API key", text: $apiKey, prompt: Text("sk-ant-…"))
+                .technicalTextInput()
                 .onSubmit(saveKey)
             HStack {
                 Button("Save Key", action: saveKey)
@@ -96,8 +133,7 @@ struct AnthropicSection: View {
                 }
             }
             TextField("Model ID", text: $settings.anthropicModel)
-                .textFieldStyle(.roundedBorder)
-                .autocorrectionDisabled()
+                .technicalTextInput()
             HStack {
                 ForEach(modelSuggestions, id: \.self) { suggestion in
                     Button(suggestion) { settings.anthropicModel = suggestion }
@@ -142,10 +178,14 @@ struct OpenAICompatibleSection: View {
         Section("OpenAI-compatible service") {
             TextField("Display name", text: $settings.openAIDisplayName)
             TextField("Base URL", text: $settings.openAIBaseURL, prompt: Text("https://api.openai.com/v1"))
-                .autocorrectionDisabled()
+                .technicalTextInput()
+                #if os(iOS)
+                .keyboardType(.URL)
+                #endif
             TextField("Model", text: $settings.openAIModel, prompt: Text("Model name as the service expects it"))
-                .autocorrectionDisabled()
+                .technicalTextInput()
             SecureField("API key", text: $apiKey, prompt: Text("Optional for local servers"))
+                .technicalTextInput()
                 .onSubmit(saveKey)
             HStack {
                 Button("Save Key", action: saveKey)
@@ -306,7 +346,7 @@ struct PrivacySettingsView: View {
                 Button("Delete All History…", role: .destructive) { isConfirmingClear = true }
             }
             Section("Keys") {
-                Text("API keys are stored in the macOS Keychain for this app only and are never written to logs, exports, or history.")
+                Text("API keys are stored in the Keychain for this app only and are never written to logs, exports, or history.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

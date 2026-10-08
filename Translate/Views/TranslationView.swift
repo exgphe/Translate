@@ -2,27 +2,42 @@ import ImagePipeline
 import SwiftUI
 import TranslationCore
 
-/// The translation screen: language bar, source and translation side by side, execution bar.
+/// The translation screen: language bar, source and translation panes, execution bar.
+/// Panes sit side by side in regular widths and stack vertically in compact widths.
 struct TranslationView: View {
+    enum Layout { case sideBySide, stacked }
+
     @Environment(TranslationWorkspace.self) private var workspace
+    var layout: Layout = .sideBySide
 
     var body: some View {
         VStack(spacing: 0) {
-            LanguageBar()
+            LanguageBar(isCompact: layout == .stacked)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             Divider()
-            HStack(spacing: 0) {
-                SourcePane()
-                Divider()
-                TranslationPane()
+            if layout == .sideBySide {
+                HStack(spacing: 0) {
+                    SourcePane()
+                    Divider()
+                    TranslationPane()
+                }
+            } else {
+                VStack(spacing: 0) {
+                    SourcePane()
+                    Divider()
+                    TranslationPane()
+                }
             }
             Divider()
-            ExecutionBar()
+            ExecutionBar(isCompact: layout == .stacked)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
         }
         .background(.background)
+        #if os(iOS)
+        .scrollDismissesKeyboard(.interactively)
+        #endif
     }
 }
 
@@ -30,6 +45,7 @@ struct TranslationView: View {
 
 struct LanguageBar: View {
     @Environment(TranslationWorkspace.self) private var workspace
+    var isCompact = false
 
     private var sourceOptions: [LanguageCode] {
         var codes = LanguageCode.commonTargets
@@ -45,16 +61,16 @@ struct LanguageBar: View {
 
     var body: some View {
         @Bindable var workspace = workspace
-        HStack(spacing: 12) {
-            Picker("Source", selection: $workspace.sourceLanguage) {
-                Text(detectedLabel).tag(SourceLanguage.automatic)
-                Divider()
-                ForEach(sourceOptions) { code in
-                    Text(code.displayName()).tag(SourceLanguage.explicit(code))
+        HStack(spacing: isCompact ? 4 : 12) {
+            languageMenu(title: detectedLabel, accessibilityID: "sourceLanguage") {
+                Picker("Source", selection: $workspace.sourceLanguage) {
+                    Text(detectedLabel).tag(SourceLanguage.automatic)
+                    Divider()
+                    ForEach(sourceOptions) { code in
+                        Text(code.displayName()).tag(SourceLanguage.explicit(code))
+                    }
                 }
             }
-            .labelsHidden()
-            .frame(maxWidth: 240)
 
             Button {
                 workspace.swapLanguages()
@@ -66,15 +82,38 @@ struct LanguageBar: View {
             .help("Swap languages (⌃⌘S)")
             .accessibilityLabel("Swap languages")
 
-            Picker("Target", selection: $workspace.targetLanguage) {
-                ForEach(targetOptions) { code in
-                    Text(code.displayName()).tag(code)
+            languageMenu(title: workspace.targetLanguage.displayName(), accessibilityID: "targetLanguage") {
+                Picker("Target", selection: $workspace.targetLanguage) {
+                    ForEach(targetOptions) { code in
+                        Text(code.displayName()).tag(code)
+                    }
                 }
             }
-            .labelsHidden()
-            .frame(maxWidth: 240)
 
-            Spacer()
+            if !isCompact { Spacer() }
+        }
+    }
+
+    /// Regular widths use the native picker; compact widths wrap it in a menu with a
+    /// single-line label so long language names truncate instead of wrapping.
+    @ViewBuilder
+    private func languageMenu<Content: View>(title: String, accessibilityID: String, @ViewBuilder content: () -> Content) -> some View {
+        if isCompact {
+            Menu {
+                content().pickerStyle(.inline).labelsHidden()
+            } label: {
+                HStack(spacing: 4) {
+                    Text(title).lineLimit(1).truncationMode(.tail)
+                    Image(systemName: "chevron.up.chevron.down").imageScale(.small)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .accessibilityIdentifier(accessibilityID)
+        } else {
+            content()
+                .labelsHidden()
+                .frame(maxWidth: 240)
+                .accessibilityIdentifier(accessibilityID)
         }
     }
 
@@ -91,6 +130,7 @@ struct LanguageBar: View {
 struct SourcePane: View {
     @Environment(TranslationWorkspace.self) private var workspace
     @State private var isDropTargeted = false
+    @FocusState private var isEditing: Bool
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -108,7 +148,22 @@ struct SourcePane: View {
                     .font(.body)
                     .scrollContentBackground(.hidden)
                     .padding(8)
+                    .focused($isEditing)
                     .accessibilityLabel("Source text")
+                    .accessibilityIdentifier("sourceEditor")
+                    #if os(iOS)
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Translate") {
+                                isEditing = false
+                                workspace.translate()
+                            }
+                            .disabled(!workspace.canTranslate)
+                            Button("Done") { isEditing = false }
+                        }
+                    }
+                    #endif
                 if workspace.sourceText.isEmpty {
                     Text("Type or paste text, or drop an image here.")
                         .foregroundStyle(.tertiary)
@@ -122,7 +177,7 @@ struct SourcePane: View {
                 ImageAttachmentView(attachment: attachment) { workspace.removeImage() }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
         .overlay {
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: 8)
@@ -217,6 +272,8 @@ struct TranslationPane: View {
                         } openSettings: {
                             #if os(macOS)
                             openSettings()
+                            #else
+                            workspace.isShowingSettings = true
                             #endif
                         }
                     }
@@ -281,9 +338,7 @@ struct ErrorBanner: View {
             }
             HStack {
                 Button("Retry", action: retry)
-                #if os(macOS)
                 Button("Open Settings…", action: openSettings)
-                #endif
             }
             .controlSize(.small)
         }
@@ -337,7 +392,7 @@ struct ExplainPopover: View {
             }
         }
         .padding()
-        .frame(width: 340)
+        .popoverSize(width: 340)
     }
 
     private func run() {
@@ -373,7 +428,7 @@ struct ContextPopover: View {
             }
         }
         .padding()
-        .frame(width: 380)
+        .popoverSize(width: 380)
     }
 }
 
@@ -382,15 +437,28 @@ struct ContextPopover: View {
 struct ExecutionBar: View {
     @Environment(TranslationWorkspace.self) private var workspace
     @Environment(EngineRegistry.self) private var registry
+    var isCompact = false
 
     var body: some View {
         HStack(spacing: 12) {
-            EnginePicker()
-            if let engine = registry.selectedEngine {
-                Text(locationDescription(for: engine))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            if isCompact {
+                VStack(alignment: .leading, spacing: 2) {
+                    EnginePicker()
+                    if let engine = registry.selectedEngine {
+                        Text(locationDescription(for: engine))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+            } else {
+                EnginePicker()
+                if let engine = registry.selectedEngine {
+                    Text(locationDescription(for: engine))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             Spacer()
             if workspace.phase.isRunning {
@@ -401,6 +469,7 @@ struct ExecutionBar: View {
                     .keyboardShortcut(.return, modifiers: .command)
                     .buttonStyle(.borderedProminent)
                     .disabled(!workspace.canTranslate)
+                    .accessibilityIdentifier("translateButton")
             }
         }
     }
@@ -447,7 +516,7 @@ struct EnginePicker: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .menuStyle(.borderlessButton)
+        .compactMenuStyle()
         .fixedSize()
         .help("Choose which model translates. Availability is checked on this device.")
     }

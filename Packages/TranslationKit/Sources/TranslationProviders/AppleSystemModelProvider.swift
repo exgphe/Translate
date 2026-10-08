@@ -34,11 +34,20 @@ public struct AppleSystemModelProvider: TranslationProvider {
         model.supportsLocale(code.locale)
     }
 
+    /// Distinct languages, keeping script where it matters (zh-Hans vs zh-Hant) but
+    /// collapsing regional variants (en-US, en-GB → en).
     public var supportedLanguages: [LanguageCode] {
-        model.supportedLanguages
-            .compactMap { $0.languageCode?.identifier }
-            .sorted()
-            .map(LanguageCode.init)
+        var seen = Set<String>()
+        var result: [LanguageCode] = []
+        for language in model.supportedLanguages {
+            guard let code = language.languageCode?.identifier else { continue }
+            let script = language.script?.identifier
+            let identifier = (code == "zh", script) == (true, .some("Hant")) ? "zh-Hant"
+                : code == "zh" ? "zh-Hans"
+                : code
+            if seen.insert(identifier).inserted { result.append(LanguageCode(identifier)) }
+        }
+        return result.sorted { $0.displayName() < $1.displayName() }
     }
 
     static func map(_ availability: SystemLanguageModel.Availability) -> ProviderAvailability {

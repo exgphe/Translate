@@ -4,7 +4,7 @@ A native translation app for Apple platforms that uses generative models you cho
 
 Free and open source (MIT). No account, no proxy, no shared key: cloud usage is billed to your own provider account.
 
-**Status:** v0.1, macOS first. The project also builds for iOS, iPadOS and visionOS, but only the Mac UI is tuned so far.
+**Status:** v0.1 on macOS, with iPhone and iPad layouts in place. visionOS builds but has not been tuned yet.
 
 ## Features
 
@@ -18,6 +18,7 @@ Free and open source (MIT). No account, no proxy, no shared key: cloud usage is 
 - **Context and Explain.** Tell the engine about audience, tone, or terminology; ask it to explain idioms, ambiguity, and alternatives.
 - **Local history** (SwiftData) that can be switched off. API keys live in the Keychain.
 - **"Only translate on this device"** refuses cloud engines before any request is made.
+- **Adaptive layout.** Mac and iPad: history sidebar plus source and translation side by side. iPhone and narrow iPad windows: source above translation, history pushed from the toolbar, settings and context as sheets, a keyboard bar with Translate / Done, and photo picking from the library.
 
 Keyboard: `⌘↩` translate · `⌘.` stop · `⌘R` retry · `⇧⌘V` paste and translate · `⇧⌘C` copy translation · `⇧⌘I` import image · `⇧⌘K` context · `⇧⌘E` explain · `⌘K` clear.
 
@@ -51,6 +52,13 @@ cd Packages/TranslationKit && swift test
 ```
 
 The on-device model tests run real inference when Apple Intelligence is available and are skipped otherwise. An optional live test against an OpenAI-compatible endpoint runs only when `TRANSLATE_OPENAI_BASE`, `TRANSLATE_OPENAI_MODEL`, and `TRANSLATE_OPENAI_KEY` are set.
+
+UI tests walk the iPhone and iPad flows (type, translate, recover from a missing engine, open history and settings) and attach screenshots to the result bundle:
+
+```bash
+xcodebuild -scheme Translate -destination 'platform=iOS Simulator,name=iPhone 18 Pro' \
+  -only-testing:TranslateUITests -parallel-testing-enabled NO test
+```
 
 ## Project layout
 
@@ -87,7 +95,7 @@ Implement `TranslationProvider` in `TranslationProviders`, map vendor errors ont
 
 ## Roadmap
 
-See `Notes/native-ai-translate-project-plan.md`. Next up: a week of daily use, then the menu bar entry, iOS/iPadOS layouts, the default-translation-app extension, and a verified downloadable model.
+See `Notes/native-ai-translate-project-plan.md`. Next up: a week of daily use, the macOS menu bar entry, the share and default-translation-app extensions on iOS, camera capture, Chinese UI strings, and a verified downloadable model.
 
 ## License
 

@@ -4,6 +4,8 @@ import TranslationCore
 
 struct HistorySidebar: View {
     @Binding var selection: UUID?
+    /// When set (compact layouts), tapping a row calls this instead of using list selection.
+    var onPick: ((HistoryEntry) -> Void)? = nil
     @Environment(\.modelContext) private var modelContext
     @Environment(AppSettings.self) private var settings
     @Environment(AppModel.self) private var model
@@ -13,8 +15,14 @@ struct HistorySidebar: View {
     var body: some View {
         List(selection: $selection) {
             ForEach(entries) { entry in
-                HistoryRow(entry: entry)
-                    .tag(entry.id)
+                Group {
+                    if let onPick {
+                        Button { onPick(entry) } label: { HistoryRow(entry: entry) }
+                            .buttonStyle(.plain)
+                    } else {
+                        HistoryRow(entry: entry).tag(entry.id)
+                    }
+                }
                     .contextMenu {
                         Button("Copy Translation") { Pasteboard.copy(entry.translatedText) }
                         Button("Delete", role: .destructive) { delete(entry) }
@@ -31,7 +39,7 @@ struct HistorySidebar: View {
                 ContentUnavailableView {
                     Label("No History", systemImage: "clock")
                 } description: {
-                    Text(settings.historyEnabled ? "Translations are kept on this Mac only." : "History is turned off in Settings.")
+                    Text(settings.historyEnabled ? "Translations are kept on this device only." : "History is turned off in Settings.")
                 }
             }
         }
@@ -47,7 +55,7 @@ struct HistorySidebar: View {
                 model.deleteAllHistory()
             }
         } message: {
-            Text("This removes every saved translation from this Mac. This cannot be undone.")
+            Text("This removes every saved translation from this device. This cannot be undone.")
         }
     }
 

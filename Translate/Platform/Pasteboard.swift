@@ -73,3 +73,37 @@ extension Image.Orientation {
         }
     }
 }
+
+// MARK: - Cross-platform view helpers
+
+extension View {
+    /// Text fields for URLs, model IDs and keys: no autocorrect, no auto-capitalization.
+    @ViewBuilder
+    func technicalTextInput() -> some View {
+        #if os(iOS) || os(visionOS)
+        self.autocorrectionDisabled().textInputAutocapitalization(.never)
+        #else
+        self.autocorrectionDisabled()
+        #endif
+    }
+
+    /// Fixed popover width on macOS; on iOS the popover adapts to a sheet, so no fixed size.
+    @ViewBuilder
+    func popoverSize(width: CGFloat) -> some View {
+        #if os(macOS)
+        self.frame(width: width)
+        #else
+        self.presentationDetents([.medium, .large])
+        #endif
+    }
+
+    /// Borderless menu on macOS; the system default elsewhere.
+    @ViewBuilder
+    func compactMenuStyle() -> some View {
+        #if os(macOS)
+        self.menuStyle(.borderlessButton)
+        #else
+        self
+        #endif
+    }
+}

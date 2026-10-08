@@ -2,23 +2,37 @@ import SwiftData
 import SwiftUI
 import TranslationCore
 import UniformTypeIdentifiers
+#if !os(macOS)
+import PhotosUI
+#endif
 
-/// Root layout: collapsible history sidebar + translation workspace.
+/// Root layout. Regular widths (Mac, iPad) get a history sidebar beside the workspace;
+/// compact widths (iPhone, narrow iPad windows) get a stack with history pushed on demand.
 struct ContentView: View {
     @Environment(TranslationWorkspace.self) private var workspace
     @Environment(AppModel.self) private var model
-    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    #if !os(macOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var photoItem: PhotosPickerItem?
+    #endif
     @State private var selectedEntryID: UUID?
+
+    private var isCompact: Bool {
+        #if os(macOS)
+        false
+        #else
+        sizeClass == .compact
+        #endif
+    }
 
     var body: some View {
         @Bindable var workspace = workspace
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            HistorySidebar(selection: $selectedEntryID)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)
-        } detail: {
-            TranslationView()
-                .navigationTitle("Translate")
-                .toolbar { toolbarContent }
+        Group {
+            if isCompact {
+                CompactRoot(selectedEntryID: $selectedEntryID)
+            } else {
+                SplitRoot(selectedEntryID: $selectedEntryID)
+            }
         }
         .fileImporter(
             isPresented: $workspace.isImportingImage,
@@ -29,6 +43,21 @@ struct ContentView: View {
                 workspace.importImage(url: url)
             }
         }
+        #if !os(macOS)
+        .photosPicker(isPresented: $workspace.isPickingPhoto, selection: $photoItem, matching: .images)
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    workspace.importImage(data: data)
+                }
+                photoItem = nil
+            }
+        }
+        .sheet(isPresented: $workspace.isShowingSettings) {
+            SettingsView()
+        }
+        #endif
         .onChange(of: selectedEntryID) { _, newValue in
             guard let newValue else { return }
             let descriptor = FetchDescriptor<HistoryEntry>(predicate: #Predicate { $0.id == newValue })
@@ -41,31 +70,87 @@ struct ContentView: View {
             if selectedEntryID != nil, workspace.lastRequest?.id != selectedEntryID { selectedEntryID = nil }
         }
     }
+}
 
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            Button {
-                workspace.isImportingImage = true
-            } label: {
-                Label("Import Image", systemImage: "photo.badge.plus")
-            }
-            .help("Import an image and recognize its text on device (⇧⌘I)")
+// MARK: - Regular width
 
-            Button {
-                workspace.pasteAndTranslate()
-            } label: {
-                Label("Paste and Translate", systemImage: "doc.on.clipboard")
-            }
-            .help("Paste text or an image from the clipboard and translate (⇧⌘V)")
+struct SplitRoot: View {
+    @Binding var selectedEntryID: UUID?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
-            Button {
-                workspace.clear()
-            } label: {
-                Label("Clear", systemImage: "trash")
-            }
-            .help("Clear source and translation (⌘K)")
-            .disabled(workspace.sourceText.isEmpty && workspace.translatedText.isEmpty)
+    var body: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            HistorySidebar(selection: $selectedEntryID)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)
+        } detail: {
+            TranslationView(layout: .sideBySide)
+                .navigationTitle("Translate")
+                .toolbarTitleDisplayMode(.inline)
+                .toolbar { WorkspaceToolbar() }
         }
+    }
+}
+
+// MARK: - Compact width
+
+struct CompactRoot: View {
+    @Environment(TranslationWorkspace.self) private var workspace
+    @Binding var selectedEntryID: UUID?
+
+    var body: some View {
+        @Bindable var workspace = workspace
+        NavigationStack {
+            TranslationView(layout: .stacked)
+                .navigationTitle("Translate")
+                .toolbarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigation) {
+                        Button("History", systemImage: "clock") { workspace.isShowingHistory = true }
+                            .accessibilityIdentifier("historyButton")
+                    }
+                    WorkspaceToolbar()
+                }
+                .navigationDestination(isPresented: $workspace.isShowingHistory) {
+                    HistorySidebar(selection: $selectedEntryID) { entry in
+                        workspace.load(entry)
+                        workspace.isShowingHistory = false
+                    }
+                }
+        }
+    }
+}
+
+// MARK: - Shared toolbar
+
+struct WorkspaceToolbar: ToolbarContent {
+    @Environment(TranslationWorkspace.self) private var workspace
+
+    var body: some ToolbarContent {
+        #if os(macOS)
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button("Import Image", systemImage: "photo.badge.plus") { workspace.isImportingImage = true }
+                .help("Import an image and recognize its text on device (⇧⌘I)")
+            Button("Paste and Translate", systemImage: "doc.on.clipboard") { workspace.pasteAndTranslate() }
+                .help("Paste text or an image from the clipboard and translate (⇧⌘V)")
+            Button("Clear", systemImage: "trash") { workspace.clear() }
+                .help("Clear source and translation (⌘K)")
+                .disabled(workspace.sourceText.isEmpty && workspace.translatedText.isEmpty)
+        }
+        #else
+        ToolbarItemGroup(placement: .primaryAction) {
+            Menu {
+                Button("Paste and Translate", systemImage: "doc.on.clipboard") { workspace.pasteAndTranslate() }
+                Button("Choose Photo", systemImage: "photo.on.rectangle") { workspace.isPickingPhoto = true }
+                Button("Import Image File", systemImage: "folder") { workspace.isImportingImage = true }
+                Divider()
+                Button("Clear", systemImage: "trash", role: .destructive) { workspace.clear() }
+                    .disabled(workspace.sourceText.isEmpty && workspace.translatedText.isEmpty)
+            } label: {
+                Label("Actions", systemImage: "ellipsis.circle")
+            }
+            Button("Settings", systemImage: "gearshape") { workspace.isShowingSettings = true }
+                .accessibilityIdentifier("settingsButton")
+        }
+        #endif
     }
 }
