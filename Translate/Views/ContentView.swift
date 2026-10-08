@@ -61,9 +61,9 @@ struct ContentView: View {
         }
         #endif
         .task(id: "\(scenePhase)-\(settings.autoPasteEnabled)") {
-            guard settings.autoPasteEnabled, shouldWatchClipboard else { return }
+            guard needsClipboardWatch, shouldWatchClipboard else { return }
             while !Task.isCancelled {
-                workspace.checkClipboardForAutoPaste()
+                workspace.clipboardTick()
                 try? await Task.sleep(for: .seconds(1))
             }
         }
@@ -84,6 +84,16 @@ struct ContentView: View {
 extension ContentView {
     /// iPhone and iPad only read the pasteboard while frontmost. On visionOS and macOS the
     /// window stays visible beside other apps, so keep watching unless it is in the background.
+    /// iOS and visionOS always watch so the Paste button can turn gray when there is nothing
+    /// to paste (type checks only, no prompt). macOS grays its button by itself.
+    fileprivate var needsClipboardWatch: Bool {
+        #if os(macOS)
+        settings.autoPasteEnabled
+        #else
+        true
+        #endif
+    }
+
     fileprivate var shouldWatchClipboard: Bool {
         #if os(iOS)
         scenePhase == .active
@@ -151,8 +161,6 @@ struct WorkspaceToolbar: ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
             Button("Import Image", systemImage: "photo.badge.plus") { workspace.isImportingImage = true }
                 .help("Import an image and recognize its text on device (⇧⌘I)")
-            Button("Paste and Translate", systemImage: "doc.on.clipboard") { workspace.pasteAndTranslate() }
-                .help("Paste text or an image from the clipboard and translate (⇧⌘V)")
             Button("Clear", systemImage: "trash") { workspace.clear() }
                 .help("Clear source and translation (⌘K)")
                 .disabled(workspace.sourceText.isEmpty && workspace.translatedText.isEmpty)
@@ -160,10 +168,6 @@ struct WorkspaceToolbar: ToolbarContent {
         #else
         ToolbarItemGroup(placement: .primaryAction) {
             Menu {
-                #if !os(visionOS)
-                // visionOS has a system Paste button in the bottom ornament instead.
-                Button("Paste and Translate", systemImage: "doc.on.clipboard") { workspace.pasteAndTranslate() }
-                #endif
                 Button("Choose Photo", systemImage: "photo.on.rectangle") { workspace.isPickingPhoto = true }
                 Button("Import Image File", systemImage: "folder") { workspace.isImportingImage = true }
                 Divider()

@@ -49,6 +49,11 @@ final class TranslationWorkspace {
     private(set) var explanation: String = ""
     private(set) var explanationPhase: Phase = .idle
 
+    /// Whether the clipboard holds text or an image. Detected from types only, so checking it
+    /// never shows the system paste prompt.
+    private(set) var clipboardHasContent = false
+    @ObservationIgnored private var observedChangeCount = -1
+
     // Presentation flags
     var isImportingImage = false
     var isPickingPhoto = false
@@ -328,6 +333,17 @@ final class TranslationWorkspace {
         case .image(let data):
             importImage(data: data, translateWhenDone: true)
         }
+    }
+
+    /// One step of the clipboard watcher: refresh the cheap content flag when the pasteboard
+    /// changes, then run auto-paste if it is on.
+    func clipboardTick() {
+        let count = Pasteboard.changeCount
+        if count != observedChangeCount {
+            observedChangeCount = count
+            clipboardHasContent = Pasteboard.hasText || Pasteboard.hasImage
+        }
+        checkClipboardForAutoPaste()
     }
 
     /// Called periodically while the app is open. Reads the pasteboard only after its change

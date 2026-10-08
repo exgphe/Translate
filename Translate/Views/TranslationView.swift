@@ -303,30 +303,6 @@ struct TranslationPane: View {
                 }
                 .padding(13)
             }
-            #if !os(visionOS)
-            Divider()
-            HStack(spacing: 8) {
-                Button("Copy", systemImage: "doc.on.doc") { workspace.copyTranslation() }
-                    .disabled(workspace.translatedText.isEmpty)
-                    .help("Copy translation (⇧⌘C)")
-
-                Button("Explain", systemImage: "questionmark.bubble") { workspace.isShowingExplain = true }
-                    .disabled(workspace.translatedText.isEmpty || workspace.phase.isRunning)
-                    .popover(isPresented: $workspace.isShowingExplain, arrowEdge: .top) { ExplainPopover() }
-                    .help("Ask the engine about idioms, tone, or a specific phrase (⇧⌘E)")
-
-                Button("Context", systemImage: workspace.context.isEmpty ? "text.bubble" : "text.bubble.fill") {
-                    workspace.isShowingContext = true
-                }
-                .popover(isPresented: $workspace.isShowingContext, arrowEdge: .top) { ContextPopover() }
-                .help("Tell the engine about audience, tone, or terminology (⇧⌘K)")
-                Spacer()
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -441,50 +417,166 @@ struct ContextPopover: View {
     }
 }
 
-// MARK: - Execution bar
+// MARK: - Action bar
+//
+// One grouping on every platform: engine | clipboard in and out | ask the AI | primary action.
+// macOS and iPad show it as a bottom bar, iPhone splits it over two rows, and visionOS floats it
+// in a bottom ornament.
 
-struct ExecutionBar: View {
-    @Environment(TranslationWorkspace.self) private var workspace
+/// Engine menu with a one-line note on where the text goes.
+struct EngineSummary: View {
     @Environment(EngineRegistry.self) private var registry
-    var isCompact = false
+    var captionFont: Font = .caption
 
     var body: some View {
-        HStack(spacing: 12) {
-            if isCompact {
-                VStack(alignment: .leading, spacing: 2) {
-                    EnginePicker()
-                    if let engine = registry.selectedEngine {
-                        Text(locationDescription(for: engine))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                }
-            } else {
-                EnginePicker()
-                if let engine = registry.selectedEngine {
-                    Text(locationDescription(for: engine))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            Spacer()
-            if workspace.phase.isRunning {
-                Button("Stop", systemImage: "stop.fill") { workspace.stop() }
-                    .keyboardShortcut(".", modifiers: .command)
-            } else {
-                Button("Translate", systemImage: "arrow.right") { workspace.translate() }
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!workspace.canTranslate)
-                    .accessibilityIdentifier("translateButton")
+        VStack(alignment: .leading, spacing: 2) {
+            EnginePicker()
+            if let engine = registry.selectedEngine {
+                Text(engine.locationDescription)
+                    .font(captionFont)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
             }
         }
     }
+}
 
-    private func locationDescription(for engine: EngineRegistry.Engine) -> String {
-        engine.locationDescription
+/// Paste (system button, so iOS and visionOS never show the paste prompt) and Copy.
+struct ClipboardButtons: View {
+    @Environment(TranslationWorkspace.self) private var workspace
+
+    var body: some View {
+        PasteButton(payloadType: PastedContent.self) { items in
+            workspace.paste(items)
+        }
+        #if os(visionOS)
+        // Ornament items default to icon-only; Paste keeps its title there. Elsewhere the bar
+        // decides, so the iPhone row can fall back to icons.
+        .labelStyle(.titleAndIcon)
+        #endif
+        #if !os(macOS)
+        // The system button only dims when there is nothing to paste; gray makes that obvious.
+        // macOS already draws its disabled push button gray.
+        .tint(workspace.clipboardHasContent ? Color.accentColor : Color.gray)
+        #endif
+        .help("Paste and translate (⇧⌘V)")
+        .accessibilityIdentifier("pasteButton")
+
+        Button("Copy", systemImage: "doc.on.doc") { workspace.copyTranslation() }
+            .disabled(workspace.translatedText.isEmpty)
+            .help("Copy translation (⇧⌘C)")
+            .accessibilityIdentifier("copyButton")
+    }
+}
+
+/// Follow-ups that ask the engine: add context before translating, explain afterwards.
+struct AssistButtons: View {
+    @Environment(TranslationWorkspace.self) private var workspace
+
+    var body: some View {
+        @Bindable var workspace = workspace
+        Button("Context", systemImage: workspace.context.isEmpty ? "text.bubble" : "text.bubble.fill") {
+            workspace.isShowingContext = true
+        }
+        .popover(isPresented: $workspace.isShowingContext, arrowEdge: popoverEdge) { ContextPopover() }
+        .help("Tell the engine about audience, tone, or terminology (⇧⌘K)")
+
+        Button("Explain", systemImage: "questionmark.bubble") { workspace.isShowingExplain = true }
+            .disabled(workspace.translatedText.isEmpty || workspace.phase.isRunning)
+            .popover(isPresented: $workspace.isShowingExplain, arrowEdge: popoverEdge) { ExplainPopover() }
+            .help("Ask the engine about idioms, tone, or a specific phrase (⇧⌘E)")
+    }
+
+    private var popoverEdge: Edge {
+        #if os(macOS)
+        .top
+        #else
+        .bottom
+        #endif
+    }
+}
+
+/// Translate, or Stop while a request runs. Always shows its title.
+struct PrimaryActionButton: View {
+    @Environment(TranslationWorkspace.self) private var workspace
+
+    var body: some View {
+        if workspace.phase.isRunning {
+            Button("Stop", systemImage: "stop.fill") { workspace.stop() }
+                .labelStyle(.titleAndIcon)
+                .keyboardShortcut(".", modifiers: .command)
+                .accessibilityIdentifier("stopButton")
+        } else {
+            Button("Translate", systemImage: "arrow.right") { workspace.translate() }
+                .labelStyle(.titleAndIcon)
+                .keyboardShortcut(.return, modifiers: .command)
+                .buttonStyle(.borderedProminent)
+                .tint(.accentColor)
+                .disabled(!workspace.canTranslate)
+                .accessibilityIdentifier("translateButton")
+        }
+    }
+}
+
+/// Thin vertical rule between groups (ToolbarSpacer is unavailable on visionOS).
+struct GroupSeparator: View {
+    var height: CGFloat = 18
+
+    var body: some View {
+        Rectangle()
+            .fill(.tertiary)
+            .frame(width: 1, height: height)
+            .padding(.horizontal, 6)
+            .accessibilityHidden(true)
+    }
+}
+
+/// Bottom bar for macOS, iPad, and iPhone.
+struct ExecutionBar: View {
+    var isCompact = false
+
+    private var compactActions: some View {
+        HStack(spacing: 10) {
+            ClipboardButtons()
+            GroupSeparator()
+            AssistButtons()
+        }
+    }
+
+    var body: some View {
+        if isCompact {
+            // iPhone: action groups on top, engine and the primary button within thumb reach.
+            VStack(spacing: 10) {
+                // Titles when they fit; icons only at large text sizes or on narrow phones.
+                ViewThatFits(in: .horizontal) {
+                    compactActions.labelStyle(.titleAndIcon)
+                    compactActions.labelStyle(.iconOnly)
+                }
+                .font(.subheadline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 12) {
+                    EngineSummary(captionFont: .caption2)
+                    Spacer(minLength: 8)
+                    PrimaryActionButton()
+                }
+            }
+            .buttonStyle(.borderless)
+        } else {
+            HStack(spacing: 8) {
+                EngineSummary()
+                GroupSeparator()
+                Group {
+                    ClipboardButtons()
+                    GroupSeparator()
+                    AssistButtons()
+                }
+                .labelStyle(.titleAndIcon)
+                Spacer(minLength: 12)
+                PrimaryActionButton()
+            }
+            .buttonStyle(.borderless)
+        }
     }
 }
 
@@ -500,64 +592,20 @@ extension EngineRegistry.Engine {
 }
 
 #if os(visionOS)
-/// visionOS bottom ornament: every action that used to sit along the window's bottom edge,
-/// as glass toolbar buttons that float out of the window.
+/// visionOS bottom ornament: the same groups as glass toolbar buttons floating below the
+/// window, away from its edge where gaze targeting is hard.
 struct VisionOrnamentControls: ToolbarContent {
-    @Environment(TranslationWorkspace.self) private var workspace
-    @Environment(EngineRegistry.self) private var registry
-
     var body: some ToolbarContent {
-        @Bindable var workspace = workspace
         ToolbarItemGroup(placement: .bottomOrnament) {
-            VStack(alignment: .leading, spacing: 2) {
-                EnginePicker()
-                if let engine = registry.selectedEngine {
-                    Text(engine.locationDescription)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .padding(.horizontal, 8)
-
-            // The system Paste button reads the clipboard without a permission prompt.
-            PasteButton(payloadType: PastedContent.self) { items in
-                workspace.paste(items)
-            }
-            .labelStyle(.titleAndIcon)
-            .accessibilityIdentifier("pasteButton")
-
-            Button("Context", systemImage: workspace.context.isEmpty ? "text.bubble" : "text.bubble.fill") {
-                workspace.isShowingContext = true
-            }
-            .popover(isPresented: $workspace.isShowingContext, arrowEdge: .bottom) { ContextPopover() }
-            .help("Context: audience, tone, terminology")
-
-            Button("Copy", systemImage: "doc.on.doc") { workspace.copyTranslation() }
-                .disabled(workspace.translatedText.isEmpty)
-                .help("Copy translation")
-
-            Button("Explain", systemImage: "questionmark.bubble") { workspace.isShowingExplain = true }
-                .disabled(workspace.translatedText.isEmpty || workspace.phase.isRunning)
-                .popover(isPresented: $workspace.isShowingExplain, arrowEdge: .bottom) { ExplainPopover() }
-                .help("Explain idioms, tone, or a phrase")
-
-            // The primary action keeps its title so it reads as the main button at a glance.
-            if workspace.phase.isRunning {
-                Button("Stop", systemImage: "stop.fill") { workspace.stop() }
-                    .labelStyle(.titleAndIcon)
-                    .keyboardShortcut(".", modifiers: .command)
-                    .accessibilityIdentifier("stopButton")
-            } else {
-                Button("Translate", systemImage: "arrow.right") { workspace.translate() }
-                    .labelStyle(.titleAndIcon)
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.accentColor)
-                    .disabled(!workspace.canTranslate)
-                    .accessibilityIdentifier("translateButton")
-            }
+            EngineSummary(captionFont: .caption2)
+                .padding(.horizontal, 8)
         }
+        ToolbarItem(placement: .bottomOrnament) { GroupSeparator(height: 28) }
+        ToolbarItemGroup(placement: .bottomOrnament) { ClipboardButtons() }
+        ToolbarItem(placement: .bottomOrnament) { GroupSeparator(height: 28) }
+        ToolbarItemGroup(placement: .bottomOrnament) { AssistButtons() }
+        ToolbarItem(placement: .bottomOrnament) { GroupSeparator(height: 28) }
+        ToolbarItemGroup(placement: .bottomOrnament) { PrimaryActionButton() }
     }
 }
 #endif

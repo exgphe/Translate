@@ -2,6 +2,8 @@
 
 iOS不应该显示optional for local server（iOS上看不到前面的标签），而是显示API Key。
 
+iOS界面美化和优化（参考系统自带翻译app）
+
 iOS: TranslationUIProvider https://developer.apple.com/documentation/translationuiprovider and https://developer.apple.com/documentation/translationuiprovider/preparing-your-app-to-be-the-default-translation-app
 
 visionOS: 模型选单、translate按钮离窗口边框太近，很难通过眼球追踪选中。可以做成工具栏按钮，加底色，这样在visionOS上面可以浮动出来。

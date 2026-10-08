@@ -56,6 +56,17 @@ struct AppleSystemModelProviderTests {
         await #expect(throws: CancellationError.self) { try await task.value }
     }
 
+    @Test func rawFrameworkErrorsBecomeReadableMessages() {
+        let request = TranslationRequest(sourceText: "Hi", targetLanguage: .english)
+        let raw = NSError(domain: "FoundationModels.LanguageModelError", code: -1)
+        let mapped = AppleSystemModelProvider.map(raw, request: request) as? TranslationError
+        #expect(mapped == .modelNotReady("The on-device model could not complete this request (code -1)."))
+        #expect(mapped?.recoverySuggestion != nil)
+
+        let unrelated = NSError(domain: NSURLErrorDomain, code: -1)
+        #expect(AppleSystemModelProvider.map(unrelated, request: request) as NSError == unrelated)
+    }
+
     @Test func refusesTextBeyondTheContextWindow() async {
         let provider = AppleSystemModelProvider()
         let request = TranslationRequest(sourceText: String(repeating: "字", count: 5000), targetLanguage: .english)

@@ -140,6 +140,38 @@ public struct AppleSystemModelProvider: TranslationProvider {
                 return TranslationError.providerError(status: 0, message: generation.localizedDescription)
             }
         }
+        if #available(macOS 27, iOS 27, visionOS 27, *), let languageModelError = error as? LanguageModelError {
+            switch languageModelError {
+            case .contextSizeExceeded:
+                return TranslationError.contextTooLong(
+                    estimatedTokens: TokenEstimator.estimate(request.sourceText) * 2,
+                    budget: contextWindowTokens
+                )
+            case .rateLimited:
+                return TranslationError.rateLimited(retryAfterSeconds: nil)
+            case .guardrailViolation:
+                return TranslationError.refused("The on-device model's safety guardrail blocked this text.")
+            case .refusal:
+                return TranslationError.refused("The on-device model declined this request.")
+            case .unsupportedLanguageOrLocale:
+                return TranslationError.unsupportedLanguage(request.targetLanguage.displayName())
+            case .timeout:
+                return TranslationError.modelNotReady("The on-device model took too long to respond.")
+            default:
+                return onDeviceFailure(code: nil)
+            }
+        }
+        // Some failures arrive as a bare NSError in the framework's domain (seen as code -1 in
+        // the visionOS simulator). Never show that raw text.
+        let nsError = error as NSError
+        if nsError.domain.contains("FoundationModels") {
+            return onDeviceFailure(code: nsError.code)
+        }
         return error
+    }
+
+    static func onDeviceFailure(code: Int?) -> TranslationError {
+        let suffix = code.map { " (code \($0))" } ?? ""
+        return .modelNotReady("The on-device model could not complete this request\(suffix).")
     }
 }
