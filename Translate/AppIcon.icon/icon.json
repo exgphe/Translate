@@ -1,101 +1,101 @@
 {
-  "color-space-for-untagged-svg-colors": "display-p3",
-  "fill-specializations": [
+  "color-space-for-untagged-svg-colors" : "display-p3",
+  "fill-specializations" : [
     {
-      "value": {
-        "linear-gradient": [
+      "value" : {
+        "linear-gradient" : [
           "display-p3:0.44000,0.40000,1.00000,1.00000",
           "display-p3:0.22000,0.12000,0.66000,1.00000"
         ]
       }
     },
     {
-      "appearance": "dark",
-      "value": {
-        "linear-gradient": [
+      "appearance" : "dark",
+      "value" : {
+        "linear-gradient" : [
           "display-p3:0.24000,0.20000,0.62000,1.00000",
           "display-p3:0.08000,0.05000,0.30000,1.00000"
         ]
       }
     }
   ],
-  "groups": [
+  "groups" : [
     {
-      "blur-material": 0.5,
-      "layers": [
+      "blur-material" : 0.5,
+      "layers" : [
         {
-          "fill": {
-            "solid": "display-p3:1.00000,1.00000,1.00000,1.00000"
+          "fill" : {
+            "solid" : "display-p3:1.00000,1.00000,1.00000,1.00000"
           },
-          "glass": false,
-          "image-name": "zh-glyph.svg",
-          "name": "zh-glyph"
+          "glass" : false,
+          "image-name" : "zh-glyph.svg",
+          "name" : "zh-glyph"
         },
         {
-          "glass": false,
-          "image-name": "zh-border.svg",
-          "name": "zh-border"
+          "glass" : false,
+          "image-name" : "zh-border.svg",
+          "name" : "zh-border"
         },
         {
-          "fill": {
-            "solid": "display-p3:0.12000,0.12000,0.26000,1.00000"
+          "fill" : {
+            "solid" : "display-p3:0.12000,0.12000,0.26000,1.00000"
           },
-          "glass": true,
-          "image-name": "zh-bubble.svg",
-          "name": "zh-bubble"
+          "glass" : true,
+          "image-name" : "zh-bubble.svg",
+          "name" : "zh-bubble"
         }
       ],
-      "lighting": "individual",
-      "name": "chinese bubble",
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.5
+      "lighting" : "individual",
+      "name" : "chinese bubble",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
       },
-      "specular": true,
-      "translucency": {
-        "enabled": true,
-        "value": 0.7
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.7
       }
     },
     {
-      "blur-material": 0.5,
-      "layers": [
+      "blur-material" : 0.5,
+      "layers" : [
         {
-          "fill": {
-            "solid": "display-p3:0.11000,0.10000,0.30000,1.00000"
+          "fill" : {
+            "solid" : "display-p3:0.11000,0.10000,0.30000,1.00000"
           },
-          "glass": false,
-          "image-name": "a-glyph.svg",
-          "name": "a-glyph"
+          "glass" : false,
+          "image-name" : "a-glyph.svg",
+          "name" : "a-glyph"
         },
         {
-          "glass": false,
-          "image-name": "a-border.svg",
-          "name": "a-border"
+          "glass" : false,
+          "image-name" : "a-border.svg",
+          "name" : "a-border"
         },
         {
-          "fill": {
-            "solid": "display-p3:1.00000,1.00000,1.00000,1.00000"
+          "fill" : {
+            "solid" : "display-p3:1.00000,1.00000,1.00000,1.00000"
           },
-          "glass": true,
-          "image-name": "a-bubble.svg",
-          "name": "a-bubble"
+          "glass" : true,
+          "image-name" : "a-bubble.svg",
+          "name" : "a-bubble"
         }
       ],
-      "lighting": "individual",
-      "name": "latin bubble",
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.5
+      "lighting" : "individual",
+      "name" : "latin bubble",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
       },
-      "specular": true,
-      "translucency": {
-        "enabled": true,
-        "value": 0.25
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.25
       }
     }
   ],
-  "supported-platforms": {
-    "squares": "shared"
+  "supported-platforms" : {
+    "squares" : "shared"
   }
 }

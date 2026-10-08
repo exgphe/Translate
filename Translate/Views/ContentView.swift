@@ -155,6 +155,9 @@ struct CompactRoot: View {
 
 struct WorkspaceToolbar: ToolbarContent {
     @Environment(TranslationWorkspace.self) private var workspace
+    #if os(macOS) || os(visionOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
 
     var body: some ToolbarContent {
         #if os(macOS)
@@ -164,12 +167,17 @@ struct WorkspaceToolbar: ToolbarContent {
             Button("Clear", systemImage: "trash") { workspace.clear() }
                 .help("Clear source and translation (⌘K)")
                 .disabled(workspace.sourceText.isEmpty && workspace.translatedText.isEmpty)
+            Button("Live Captions", systemImage: "captions.bubble") { openWindow(id: "live-captions") }
+                .help("Translate what another app is playing, as live captions (⌥⌘L)")
         }
         #else
         ToolbarItemGroup(placement: .primaryAction) {
             Menu {
                 Button("Choose Photo", systemImage: "photo.on.rectangle") { workspace.isPickingPhoto = true }
                 Button("Import Image File", systemImage: "folder") { workspace.isImportingImage = true }
+                #if os(visionOS)
+                Button("Live Captions", systemImage: "captions.bubble") { openWindow(id: "live-captions", value: "main") }
+                #endif
                 Divider()
                 Button("Clear", systemImage: "trash", role: .destructive) { workspace.clear() }
                     .disabled(workspace.sourceText.isEmpty && workspace.translatedText.isEmpty)

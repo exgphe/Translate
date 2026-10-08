@@ -3,6 +3,7 @@ import SwiftUI
 /// Menu bar commands. Every main action is reachable from the keyboard.
 struct TranslateCommands: Commands {
     let model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandMenu("Translate") {
@@ -47,6 +48,13 @@ struct TranslateCommands: Commands {
 
             Button("Clear") { model.workspace.clear() }
                 .keyboardShortcut("k", modifiers: .command)
+
+            #if os(macOS)
+            Divider()
+
+            Button("Live Captions…") { openWindow(id: "live-captions") }
+                .keyboardShortcut("l", modifiers: [.command, .option])
+            #endif
         }
     }
 }

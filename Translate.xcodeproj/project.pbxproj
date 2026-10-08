@@ -10,6 +10,7 @@
 		7A00000000000000000000C1 /* TranslationCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7A00000000000000000000B1 /* TranslationCore */; };
 		7A00000000000000000000C2 /* TranslationProviders in Frameworks */ = {isa = PBXBuildFile; productRef = 7A00000000000000000000B2 /* TranslationProviders */; };
 		7A00000000000000000000C3 /* ImagePipeline in Frameworks */ = {isa = PBXBuildFile; productRef = 7A00000000000000000000B3 /* ImagePipeline */; };
+		7A00000000000000000000C4 /* LiveCaptions in Frameworks */ = {isa = PBXBuildFile; productRef = 7A00000000000000000000B4 /* LiveCaptions */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -60,6 +61,7 @@
 				7A00000000000000000000C1 /* TranslationCore in Frameworks */,
 				7A00000000000000000000C2 /* TranslationProviders in Frameworks */,
 				7A00000000000000000000C3 /* ImagePipeline in Frameworks */,
+				7A00000000000000000000C4 /* LiveCaptions in Frameworks */,
 			);
 		};
 		0171BEF8307640B0004245DA /* Frameworks */ = {
@@ -116,6 +118,7 @@
 				7A00000000000000000000B1 /* TranslationCore */,
 				7A00000000000000000000B2 /* TranslationProviders */,
 				7A00000000000000000000B3 /* ImagePipeline */,
+				7A00000000000000000000B4 /* LiveCaptions */,
 			);
 			productName = Translate;
 			productReference = 0171BEEE307640AE004245DA /* Translate.app */;
@@ -380,6 +383,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xros*]" = VisionAppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xrsimulator*]" = VisionAppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
@@ -391,9 +396,12 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Translate recognizes speech on this device to show live captions.";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=xros*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=xrsimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
@@ -427,6 +435,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xros*]" = VisionAppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xrsimulator*]" = VisionAppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
@@ -438,9 +448,12 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Translate recognizes speech on this device to show live captions.";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=xros*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=xrsimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
@@ -628,6 +641,10 @@
 		7A00000000000000000000B3 /* ImagePipeline */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ImagePipeline;
+		};
+		7A00000000000000000000B4 /* LiveCaptions */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LiveCaptions;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

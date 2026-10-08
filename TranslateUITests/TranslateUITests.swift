@@ -174,4 +174,24 @@ final class TranslateUITests: XCTestCase {
         snap("v4-general")
     }
     #endif
+
+    #if os(visionOS)
+    /// The Live Captions panel opens from the toolbar menu. Simulators have no ScreenCaptureKit,
+    /// so Start must be disabled with an explanation instead of failing later.
+    @MainActor
+    func testLiveCaptionsPanelOpens() throws {
+        let actions = app.buttons["Actions"].firstMatch
+        XCTAssertTrue(actions.waitForExistence(timeout: 10))
+        actions.tap()
+        snap("lc-menu")
+        app.buttons["Live Captions"].firstMatch.tap()
+        snap("lc-after-tap")
+
+        let start = app.buttons["startCaptions"].firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 10))
+        XCTAssertFalse(start.isEnabled, "Capture should be unavailable in the simulator")
+        XCTAssertTrue(app.staticTexts["Capturing other apps' sound is not available on this device."].waitForExistence(timeout: 5))
+        snap("lc-panel")
+    }
+    #endif
 }
