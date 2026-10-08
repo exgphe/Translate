@@ -261,7 +261,8 @@ final class TranslationWorkspace {
 
     // MARK: - Images
 
-    func importImage(data: Data) {
+    /// - Parameter translateWhenDone: start translating once OCR has produced text.
+    func importImage(data: Data, translateWhenDone: Bool = false) {
         ocrTask?.cancel()
         do {
             let image = try ImageLoader.load(data)
@@ -284,6 +285,7 @@ final class TranslationWorkspace {
                     attachment?.phase = .completed
                     sourceText = document.text
                     if settings.sourceLanguage.explicitCode == nil { detectedLanguage = nil }
+                    if translateWhenDone { translate() }
                 }
             } catch {
                 guard let self, !Task.isCancelled else { return }
@@ -312,6 +314,42 @@ final class TranslationWorkspace {
     func copyTranslation() {
         guard !translatedText.isEmpty else { return }
         Pasteboard.copy(translatedText)
+    }
+
+    /// Handles the system Paste button: replace the source and translate in one step.
+    func paste(_ items: [PastedContent]) {
+        guard let item = items.first else { return }
+        switch item {
+        case .text(let text):
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            sourceText = text
+            removeImage()
+            translate()
+        case .image(let data):
+            importImage(data: data, translateWhenDone: true)
+        }
+    }
+
+    /// Called periodically while the app is open. Reads the pasteboard only after its change
+    /// count moves, and ignores what this app copied itself or what is already shown.
+    func checkClipboardForAutoPaste() {
+        guard settings.autoPasteEnabled else { return }
+        let count = Pasteboard.changeCount
+        guard count != settings.lastPasteboardChangeCount else { return }
+        settings.lastPasteboardChangeCount = count
+        guard count != Pasteboard.ownChangeCount else { return }
+
+        if Pasteboard.hasText {
+            guard let text = Pasteboard.readString()?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty,
+                  text != sourceText.trimmingCharacters(in: .whitespacesAndNewlines),
+                  text != translatedText.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+            sourceText = text
+            removeImage()
+            if settings.autoPasteTranslates { translate() }
+        } else if Pasteboard.hasImage, let data = Pasteboard.readImageData() {
+            importImage(data: data, translateWhenDone: settings.autoPasteTranslates)
+        }
     }
 
     func pasteAndTranslate() {

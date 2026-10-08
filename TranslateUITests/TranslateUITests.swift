@@ -1,4 +1,7 @@
 import XCTest
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Walks the main iOS/iPadOS flows and saves screenshots to TRANSLATE_SCREENSHOT_DIR when set.
 final class TranslateUITests: XCTestCase {
@@ -10,10 +13,18 @@ final class TranslateUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        // Keep auto-paste off unless a test turns it on, so clipboard writes don't interfere.
+        app.launchArguments += ["-clipboard.autoPaste", "NO"]
         app.launch()
     }
 
     private func snap(_ name: String) {
+        #if os(visionOS)
+        // XCUIScreen returns a 1×1 placeholder on visionOS. Log a timestamp and hold the state
+        // so an external `simctl io screenshot` loop can capture it.
+        print("SNAP \(name) \(Date().timeIntervalSince1970)")
+        Thread.sleep(forTimeInterval: 3)
+        #endif
         let png = XCUIScreen.main.screenshot().pngRepresentation
         if let dir = screenshotDir {
             try? png.write(to: dir.appendingPathComponent("\(name).png"))
@@ -82,4 +93,76 @@ final class TranslateUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Privacy"].waitForExistence(timeout: 5))
         snap("6-privacy")
     }
+
+    #if canImport(UIKit)
+    /// With auto-paste on, text copied elsewhere lands in the source without any tap
+    /// (after the system's one-time paste permission, which the test accepts).
+    @MainActor
+    func testAutoPastePicksUpNewClipboardText() throws {
+        app.terminate()
+        let sample = "Auto paste sample \(Int.random(in: 1000...9999))"
+        UIPasteboard.general.string = sample
+        app.launchArguments = ["-clipboard.autoPaste", "YES", "-clipboard.autoPasteTranslates", "NO"]
+        app.launch()
+        // A fresh launch compares against the persisted change count, so new text counts as a change;
+        // copy once more after launch to make that certain.
+        UIPasteboard.general.string = sample
+        allowPasteIfAsked()
+
+        let editor = app.textViews["sourceEditor"]
+        expectation(for: NSPredicate(format: "value CONTAINS %@", sample), evaluatedWith: editor)
+        waitForExpectations(timeout: 20)
+        snap("7-auto-pasted")
+    }
+
+    private func allowPasteIfAsked() {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for _ in 0..<16 {
+            for button in [app.buttons["Allow Paste"], springboard.buttons["Allow Paste"]] where button.exists {
+                button.tap()
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+    }
+    #endif
+
+    #if os(visionOS)
+    /// The bottom ornament's system Paste button fills the source in one pinch, without a
+    /// permission prompt, and the remaining controls are reachable from the ornament.
+    @MainActor
+    func testVisionOrnamentPasteAndControls() throws {
+        let sample = "Break a leg tonight!"
+        UIPasteboard.general.string = sample
+
+        let paste = app.buttons.matching(NSPredicate(format: "identifier == 'pasteButton' OR label == 'Paste'")).firstMatch
+        XCTAssertTrue(paste.waitForExistence(timeout: 10), "Paste button missing from the ornament")
+        snap("v0-ornament")
+        paste.tap()
+
+        let editor = app.textViews["sourceEditor"]
+        let filled = NSPredicate(format: "value CONTAINS %@", sample)
+        expectation(for: filled, evaluatedWith: editor)
+        waitForExpectations(timeout: 10)
+        snap("v1-pasted")
+
+        // Translation either completes or shows a recovery banner; both mean the request ran.
+        let settled = app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] 'No translation engine' OR label CONTAINS[c] 'API key' OR label CONTAINS[c] 'Apple Intelligence' OR label CONTAINS[c] '祝'")).firstMatch
+        _ = settled.waitForExistence(timeout: 20)
+        XCTAssertTrue(app.buttons["translateButton"].waitForExistence(timeout: 20))
+        snap("v2-after-translate")
+
+        app.buttons["Context"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Context for this translation"].waitForExistence(timeout: 5))
+        snap("v3-context")
+        app.buttons["Translate with Context"].firstMatch.tap()
+
+        let settings = app.buttons["settingsButton"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        settings.tap()
+        app.buttons["General"].firstMatch.tap()
+        XCTAssertTrue(app.switches["Paste automatically when the clipboard changes"].waitForExistence(timeout: 5))
+        snap("v4-general")
+    }
+    #endif
 }

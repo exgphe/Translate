@@ -19,6 +19,9 @@ final class AppSettings {
         static let openAIBaseURL = "openai.baseURL"
         static let openAIModel = "openai.model"
         static let onDeviceOnly = "privacy.onDeviceOnly"
+        static let autoPaste = "clipboard.autoPaste"
+        static let autoPasteTranslates = "clipboard.autoPasteTranslates"
+        static let lastPasteboardChangeCount = "clipboard.lastChangeCount"
     }
 
     var selectedEngineID: String {
@@ -41,6 +44,22 @@ final class AppSettings {
     /// When on, requests are refused before reaching any engine that leaves the device.
     var onDeviceOnly: Bool {
         didSet { defaults.set(onDeviceOnly, forKey: Key.onDeviceOnly) }
+    }
+
+    /// Paste whatever another app copies, checked while this app is open. Off by default.
+    var autoPasteEnabled: Bool {
+        didSet { defaults.set(autoPasteEnabled, forKey: Key.autoPaste) }
+    }
+
+    /// Start translating right after an automatic paste.
+    var autoPasteTranslates: Bool {
+        didSet { defaults.set(autoPasteTranslates, forKey: Key.autoPasteTranslates) }
+    }
+
+    /// Last pasteboard change the app has handled. Persisted so copying something and then
+    /// opening the app counts as a change.
+    @ObservationIgnored var lastPasteboardChangeCount: Int {
+        didSet { defaults.set(lastPasteboardChangeCount, forKey: Key.lastPasteboardChangeCount) }
     }
 
     var anthropicModel: String {
@@ -70,6 +89,9 @@ final class AppSettings {
         sourceLanguageIdentifier = defaults.string(forKey: Key.sourceLanguage) ?? ""
         historyEnabled = defaults.object(forKey: Key.historyEnabled) as? Bool ?? true
         onDeviceOnly = defaults.bool(forKey: Key.onDeviceOnly)
+        autoPasteEnabled = defaults.bool(forKey: Key.autoPaste)
+        autoPasteTranslates = defaults.object(forKey: Key.autoPasteTranslates) as? Bool ?? true
+        lastPasteboardChangeCount = defaults.object(forKey: Key.lastPasteboardChangeCount) as? Int ?? -1
         anthropicModel = defaults.string(forKey: Key.anthropicModel) ?? "claude-opus-5-5"
         anthropicEffort = defaults.string(forKey: Key.anthropicEffort) ?? "low"
         openAIDisplayName = defaults.string(forKey: Key.openAIName) ?? "OpenAI-compatible"

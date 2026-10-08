@@ -292,6 +292,19 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("Clipboard") {
+                Toggle("Paste automatically when the clipboard changes", isOn: $settings.autoPasteEnabled)
+                    .onChange(of: settings.autoPasteEnabled) { _, isOn in
+                        // Start from what is on the clipboard now; only later copies are pasted.
+                        if isOn { settings.lastPasteboardChangeCount = Pasteboard.changeCount }
+                    }
+                Toggle("Translate right after pasting", isOn: $settings.autoPasteTranslates)
+                    .disabled(!settings.autoPasteEnabled)
+                Text(clipboardFootnote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            #if os(macOS)
             Section("Keyboard") {
                 KeyboardHintRow(action: "Translate", shortcut: "⌘↩")
                 KeyboardHintRow(action: "Stop", shortcut: "⌘.")
@@ -301,8 +314,19 @@ struct GeneralSettingsView: View {
                 KeyboardHintRow(action: "Add context", shortcut: "⇧⌘K")
                 KeyboardHintRow(action: "Explain", shortcut: "⇧⌘E")
             }
+            #endif
         }
         .formStyle(.grouped)
+    }
+}
+
+extension GeneralSettingsView {
+    fileprivate var clipboardFootnote: String {
+        #if os(macOS)
+        "Checked about once a second while the app is open. Text copied from this app is ignored."
+        #else
+        "Checked while the app is open. The system asks before an app reads what another app copied; choose Allow in Settings › Apps › Translate › Paste from Other Apps to skip the prompt. The Paste button never asks."
+        #endif
     }
 }
 

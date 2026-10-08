@@ -4,7 +4,7 @@ A native translation app for Apple platforms that uses generative models you cho
 
 Free and open source (MIT). No account, no proxy, no shared key: cloud usage is billed to your own provider account.
 
-**Status:** v0.1 on macOS, with iPhone and iPad layouts in place. visionOS builds but has not been tuned yet.
+**Status:** v0.1 on macOS, with iPhone, iPad, and Apple Vision Pro layouts in place.
 
 ## Features
 
@@ -19,6 +19,8 @@ Free and open source (MIT). No account, no proxy, no shared key: cloud usage is 
 - **Local history** (SwiftData) that can be switched off. API keys live in the Keychain.
 - **"Only translate on this device"** refuses cloud engines before any request is made.
 - **Adaptive layout.** Mac and iPad: history sidebar plus source and translation side by side. iPhone and narrow iPad windows: source above translation, history pushed from the toolbar, settings and context as sheets, a keyboard bar with Translate / Done, and photo picking from the library.
+- **Apple Vision Pro.** Engine, Paste, Context, Copy, Explain, and Translate float in a glass ornament below the window, away from the edge, so they are easy to target by eye. The system Paste button pastes and translates in one pinch without a permission prompt.
+- **Optional auto-paste.** When turned on, new clipboard text or images are pasted (and optionally translated) while the app is open. Off by default. Text copied from this app is ignored.
 
 Keyboard: `⌘↩` translate · `⌘.` stop · `⌘R` retry · `⇧⌘V` paste and translate · `⇧⌘C` copy translation · `⇧⌘I` import image · `⇧⌘K` context · `⇧⌘E` explain · `⌘K` clear.
 

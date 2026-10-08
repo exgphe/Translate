@@ -29,12 +29,19 @@ struct TranslationView: View {
                     TranslationPane()
                 }
             }
+            #if !os(visionOS)
             Divider()
             ExecutionBar(isCompact: layout == .stacked)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+            #endif
         }
+        #if os(visionOS)
+        // Controls float below the window, where gaze targeting is comfortable.
+        .toolbar { VisionOrnamentControls() }
+        #else
         .background(.background)
+        #endif
         #if os(iOS)
         .scrollDismissesKeyboard(.interactively)
         #endif
@@ -217,7 +224,7 @@ struct ImageAttachmentView: View {
                                 .foregroundStyle(.orange)
                         }
                     }
-                    Text("Only the recognized text is sent to the engine. The image stays on this Mac.")
+                    Text("Only the recognized text is sent to the engine. The image stays on this device.")
                         .foregroundStyle(.secondary)
                 case .failed(let message, let suggestion):
                     Label(message, systemImage: "exclamationmark.triangle")
@@ -296,6 +303,7 @@ struct TranslationPane: View {
                 }
                 .padding(13)
             }
+            #if !os(visionOS)
             Divider()
             HStack(spacing: 8) {
                 Button("Copy", systemImage: "doc.on.doc") { workspace.copyTranslation() }
@@ -318,6 +326,7 @@ struct TranslationPane: View {
             .controlSize(.small)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -475,13 +484,83 @@ struct ExecutionBar: View {
     }
 
     private func locationDescription(for engine: EngineRegistry.Engine) -> String {
-        switch engine.location {
+        engine.locationDescription
+    }
+}
+
+extension EngineRegistry.Engine {
+    /// One-line answer to "where does my text go?", shown next to the engine everywhere.
+    var locationDescription: String {
+        switch location {
         case .onDevice: "Text stays on this device."
         case .localServer: "Text goes to your local server."
-        case .cloud: "Text is sent to \(engine.name) using your own key."
+        case .cloud: "Text is sent to \(name) using your own key."
         }
     }
 }
+
+#if os(visionOS)
+/// visionOS bottom ornament: every action that used to sit along the window's bottom edge,
+/// as glass toolbar buttons that float out of the window.
+struct VisionOrnamentControls: ToolbarContent {
+    @Environment(TranslationWorkspace.self) private var workspace
+    @Environment(EngineRegistry.self) private var registry
+
+    var body: some ToolbarContent {
+        @Bindable var workspace = workspace
+        ToolbarItemGroup(placement: .bottomOrnament) {
+            VStack(alignment: .leading, spacing: 2) {
+                EnginePicker()
+                if let engine = registry.selectedEngine {
+                    Text(engine.locationDescription)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 8)
+
+            // The system Paste button reads the clipboard without a permission prompt.
+            PasteButton(payloadType: PastedContent.self) { items in
+                workspace.paste(items)
+            }
+            .labelStyle(.titleAndIcon)
+            .accessibilityIdentifier("pasteButton")
+
+            Button("Context", systemImage: workspace.context.isEmpty ? "text.bubble" : "text.bubble.fill") {
+                workspace.isShowingContext = true
+            }
+            .popover(isPresented: $workspace.isShowingContext, arrowEdge: .bottom) { ContextPopover() }
+            .help("Context: audience, tone, terminology")
+
+            Button("Copy", systemImage: "doc.on.doc") { workspace.copyTranslation() }
+                .disabled(workspace.translatedText.isEmpty)
+                .help("Copy translation")
+
+            Button("Explain", systemImage: "questionmark.bubble") { workspace.isShowingExplain = true }
+                .disabled(workspace.translatedText.isEmpty || workspace.phase.isRunning)
+                .popover(isPresented: $workspace.isShowingExplain, arrowEdge: .bottom) { ExplainPopover() }
+                .help("Explain idioms, tone, or a phrase")
+
+            // The primary action keeps its title so it reads as the main button at a glance.
+            if workspace.phase.isRunning {
+                Button("Stop", systemImage: "stop.fill") { workspace.stop() }
+                    .labelStyle(.titleAndIcon)
+                    .keyboardShortcut(".", modifiers: .command)
+                    .accessibilityIdentifier("stopButton")
+            } else {
+                Button("Translate", systemImage: "arrow.right") { workspace.translate() }
+                    .labelStyle(.titleAndIcon)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.accentColor)
+                    .disabled(!workspace.canTranslate)
+                    .accessibilityIdentifier("translateButton")
+            }
+        }
+    }
+}
+#endif
 
 struct EnginePicker: View {
     @Environment(EngineRegistry.self) private var registry

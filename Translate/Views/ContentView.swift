@@ -11,6 +11,8 @@ import PhotosUI
 struct ContentView: View {
     @Environment(TranslationWorkspace.self) private var workspace
     @Environment(AppModel.self) private var model
+    @Environment(AppSettings.self) private var settings
+    @Environment(\.scenePhase) private var scenePhase
     #if !os(macOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var photoItem: PhotosPickerItem?
@@ -58,6 +60,13 @@ struct ContentView: View {
             SettingsView()
         }
         #endif
+        .task(id: "\(scenePhase)-\(settings.autoPasteEnabled)") {
+            guard settings.autoPasteEnabled, shouldWatchClipboard else { return }
+            while !Task.isCancelled {
+                workspace.checkClipboardForAutoPaste()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
         .onChange(of: selectedEntryID) { _, newValue in
             guard let newValue else { return }
             let descriptor = FetchDescriptor<HistoryEntry>(predicate: #Predicate { $0.id == newValue })
@@ -69,6 +78,18 @@ struct ContentView: View {
             // Editing the source detaches the view from the selected history row.
             if selectedEntryID != nil, workspace.lastRequest?.id != selectedEntryID { selectedEntryID = nil }
         }
+    }
+}
+
+extension ContentView {
+    /// iPhone and iPad only read the pasteboard while frontmost. On visionOS and macOS the
+    /// window stays visible beside other apps, so keep watching unless it is in the background.
+    fileprivate var shouldWatchClipboard: Bool {
+        #if os(iOS)
+        scenePhase == .active
+        #else
+        scenePhase != .background
+        #endif
     }
 }
 
@@ -139,7 +160,10 @@ struct WorkspaceToolbar: ToolbarContent {
         #else
         ToolbarItemGroup(placement: .primaryAction) {
             Menu {
+                #if !os(visionOS)
+                // visionOS has a system Paste button in the bottom ornament instead.
                 Button("Paste and Translate", systemImage: "doc.on.clipboard") { workspace.pasteAndTranslate() }
+                #endif
                 Button("Choose Photo", systemImage: "photo.on.rectangle") { workspace.isPickingPhoto = true }
                 Button("Import Image File", systemImage: "folder") { workspace.isImportingImage = true }
                 Divider()

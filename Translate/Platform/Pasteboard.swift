@@ -6,10 +6,39 @@ import UniformTypeIdentifiers
 import AppKit
 
 enum Pasteboard {
+    /// Change count right after this app last wrote to the pasteboard, so auto-paste can
+    /// ignore our own copies.
+    private(set) static var ownChangeCount = -1
+
     static func copy(_ string: String) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(string, forType: .string)
+        ownChangeCount = pasteboard.changeCount
+    }
+
+    static var changeCount: Int { NSPasteboard.general.changeCount }
+
+    /// Type checks only; they do not read the contents. A Finder file copy also carries the
+    /// file name as a string and the file icon as TIFF, so file copies count as images only
+    /// when the file itself is an image, and never as text.
+    static var hasText: Bool {
+        let pasteboard = NSPasteboard.general
+        return pasteboard.availableType(from: [.string]) != nil && pasteboard.availableType(from: [.fileURL]) == nil
+    }
+
+    static var hasImage: Bool {
+        let pasteboard = NSPasteboard.general
+        if pasteboard.availableType(from: [.fileURL]) != nil { return imageFileURL() != nil }
+        return pasteboard.availableType(from: [.png, .tiff]) != nil
+    }
+
+    private static func imageFileURL() -> URL? {
+        let urls = NSPasteboard.general.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingContentsConformToTypes: [UTType.image.identifier]]
+        ) as? [URL]
+        return urls?.first
     }
 
     static func readString() -> String? {
@@ -18,12 +47,12 @@ enum Pasteboard {
 
     static func readImageData() -> Data? {
         let pasteboard = NSPasteboard.general
+        // A copied image file wins over the TIFF icon Finder puts next to it.
+        if pasteboard.availableType(from: [.fileURL]) != nil {
+            return imageFileURL().flatMap { try? Data(contentsOf: $0) }
+        }
         for type in [NSPasteboard.PasteboardType.png, .tiff] {
             if let data = pasteboard.data(forType: type) { return data }
-        }
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingContentsConformToTypes: [UTType.image.identifier]]) as? [URL],
-           let url = urls.first {
-            return try? Data(contentsOf: url)
         }
         return nil
     }
@@ -32,9 +61,20 @@ enum Pasteboard {
 import UIKit
 
 enum Pasteboard {
+    /// Change count right after this app last wrote to the pasteboard, so auto-paste can
+    /// ignore our own copies.
+    private(set) static var ownChangeCount = -1
+
     static func copy(_ string: String) {
         UIPasteboard.general.string = string
+        ownChangeCount = UIPasteboard.general.changeCount
     }
+
+    static var changeCount: Int { UIPasteboard.general.changeCount }
+
+    /// These checks do not read the contents, so they never trigger the paste prompt.
+    static var hasText: Bool { UIPasteboard.general.hasStrings }
+    static var hasImage: Bool { UIPasteboard.general.hasImages }
 
     static func readString() -> String? {
         UIPasteboard.general.string
@@ -45,6 +85,17 @@ enum Pasteboard {
     }
 }
 #endif
+
+/// What a system Paste button hands over. Text is preferred when both are offered.
+nonisolated enum PastedContent: Transferable {
+    case text(String)
+    case image(Data)
+
+    static var transferRepresentation: some TransferRepresentation {
+        ProxyRepresentation(importing: { (text: String) in PastedContent.text(text) })
+        DataRepresentation(importedContentType: .image) { PastedContent.image($0) }
+    }
+}
 
 /// Accepts dropped image files and in-memory images alike.
 struct DroppedImage: Transferable {

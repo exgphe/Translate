@@ -4,7 +4,7 @@ iOS不应该显示optional for local server（iOS上看不到前面的标签）�
 
 iOS: TranslationUIProvider https://developer.apple.com/documentation/translationuiprovider and https://developer.apple.com/documentation/translationuiprovider/preparing-your-app-to-be-the-default-translation-app
 
-visionOS: 模型选单、translate按钮离窗口边框太近，可以做成工具栏
+visionOS: 模型选单、translate按钮离窗口边框太近，很难通过眼球追踪选中。可以做成工具栏按钮，加底色，这样在visionOS上面可以浮动出来。
 
 safari web extension：翻译网页内容，不仅翻译文字，还能翻译图片（翻译后文字叠加在图片上）。
 
