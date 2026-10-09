@@ -1,4 +1,4 @@
-#if os(macOS) || os(visionOS)
+#if os(macOS) || os(visionOS) || os(iOS)
 import CoreMedia
 import Foundation
 #if canImport(ScreenCaptureKit)
@@ -33,10 +33,12 @@ public final class SystemAudioCapture: NSObject, @unchecked Sendable {
         // Speech recognition works at 16 kHz mono, so ask for that and skip a conversion step.
         configuration.sampleRate = 16_000
         configuration.channelCount = 1
-        #if os(macOS)
-        // Video is required by the API but unused: keep it tiny and slow.
+        #if os(macOS) || os(iOS)
+        // Video is required by the API but unused: keep it tiny.
         configuration.width = 2
         configuration.height = 2
+        #endif
+        #if os(macOS)
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 1)
         configuration.showsCursor = false
         #endif

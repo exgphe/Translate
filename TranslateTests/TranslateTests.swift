@@ -3,6 +3,7 @@
 //  TranslateTests
 //
 
+import CaptionFeed
 import Foundation
 import LiveCaptions
 import Testing
@@ -182,6 +183,26 @@ struct LiveCaptionsAppleTranslationTests {
         let translator = AppleCaptionTranslator(source: controller.appleSourceLanguage, target: controller.appleTargetLanguage, lowLatency: true)
         #expect(translator.translatesVolatileText)
         #expect(try await translator.translate("Break a leg tonight!", previousLines: []).isEmpty == false)
+    }
+}
+
+/// The app side of the Safari extension bridge: the signed, sandboxed app can reach the App
+/// Group container the extension reads from.
+struct CaptionFeedAppGroupTests {
+    @Test func appGroupContainerRoundTripsCaptions() throws {
+        let store = try #require(CaptionFeedStore.shared(), "No App Group container; check the application-groups entitlement")
+        #expect(CaptionFeed.appGroupIdentifier.hasSuffix("wang.xiaolin.Translate"))
+        // Whole seconds: the file stores dates as seconds, so sub-microsecond parts don't survive.
+        let now = Date(timeIntervalSince1970: Date.now.timeIntervalSince1970.rounded())
+        let snapshot = CaptionFeedSnapshot(
+            sessionID: UUID(), isActive: true, updatedAt: now,
+            lines: [.init(id: 0, original: "Hello.", translation: "你好。", finalizedAt: now)],
+            volatileOriginal: "", volatileTranslation: nil, showsOriginal: true, language: "zh-Hans"
+        )
+        try store.write(snapshot)
+        defer { store.remove() }
+        #expect(store.read() == snapshot)
+        #expect(CaptionFeedReply.make(from: store.read())["text"] as? String == "你好。\nHello.")
     }
 }
 #endif

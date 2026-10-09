@@ -10,9 +10,7 @@ final class AppModel {
     let registry: EngineRegistry
     let workspace: TranslationWorkspace
     let container: ModelContainer
-    #if os(macOS) || os(visionOS)
     let liveCaptions: LiveCaptionsController
-    #endif
 
     init() {
         let settings = AppSettings()
@@ -28,9 +26,7 @@ final class AppModel {
         self.registry = registry
         self.container = container
         self.workspace = TranslationWorkspace(settings: settings, registry: registry, modelContext: container.mainContext)
-        #if os(macOS) || os(visionOS)
         self.liveCaptions = LiveCaptionsController(settings: settings, registry: registry)
-        #endif
     }
 
     func deleteAllHistory() {

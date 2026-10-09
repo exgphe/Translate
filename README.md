@@ -22,6 +22,7 @@ Free and open source (MIT). No account, no proxy, no shared key: cloud usage is 
 - **Adaptive layout.** Mac and iPad: history sidebar, source and translation side by side, action bar along the bottom. iPhone and narrow iPad windows: source above translation, the action bar on two rows with Translate in thumb reach, history pushed from the toolbar, settings and context as sheets, a keyboard bar with Translate / Done, and photo picking from the library.
 - **Apple Vision Pro.** The action bar floats in a glass ornament below the window, away from the edge, so every control is easy to target by eye.
 - **Live captions (macOS, Apple Vision Pro).** Pick a Safari window (or any app) in the system picker; its sound is captured with ScreenCaptureKit, recognized on device with SpeechAnalyzer, and each sentence is translated. On macOS, Apple Translation in low-latency mode also translates the phrase still being spoken, and captions float at the bottom of the screen, over full-screen video too, without taking clicks. On Vision Pro, captions get their own window to place under the video, and translation uses the app's engines because the Translation framework is not available there. Nothing is recorded or saved to history. Open it with ⌥⌘L or the captions button.
+- **Captions inside Safari videos (iPhone, iPad, Mac, Vision Pro).** The bundled Translate Live Captions Safari extension shows the same captions as a subtitle track on the video you are watching, drawn by Safari itself, so they also appear in full screen and in immersive viewing where the app's own caption window can't. On iPhone and iPad this is the only way to see captions while watching: start Live Captions in the app, share the screen in the system picker, then switch to Safari; the app keeps listening in the background (`screen-capture` background mode). Turn the extension on in Settings › Apps › Safari › Extensions (Safari › Settings › Extensions on Mac) and allow it on all websites.
 - **Optional auto-paste.** When turned on, new clipboard text or images are pasted (and optionally translated) while the app is open. Off by default. Text copied from this app is ignored.
 
 Keyboard: `⌘↩` translate · `⌘.` stop · `⌘R` retry · `⇧⌘V` paste and translate · `⇧⌘C` copy translation · `⇧⌘I` import image · `⇧⌘K` context · `⇧⌘E` explain · `⌘K` clear.
@@ -59,6 +60,14 @@ The on-device model tests run real inference when Apple Intelligence is availabl
 
 The Translation framework does not respond to command-line tools, so its check lives in the app-hosted `TranslateTests` target (`xcodebuild test -only-testing:TranslateTests -destination platform=macOS`). Simulators ship without ScreenCaptureKit, so live captions report capture as unavailable there; test capture on a Mac or a Vision Pro.
 
+The Safari extension's content script is tested in WebKit outside Safari:
+
+```bash
+swiftc -O Tools/ContentScriptTests.swift -o /tmp/content-tests && /tmp/content-tests TranslateCaptions/content.js /tmp/content-out
+```
+
+How the pieces connect: the app writes the current captions to `live-captions.json` in the App Group container (`CaptionFeed`); the content script polls through the background script, which asks the extension's native handler (`SafariWebExtensionHandler`), which reads that file. The App Group is `group.wang.xiaolin.Translate` on iOS and visionOS and `<TEAM>.wang.xiaolin.Translate` on macOS (the `CAPTION_APP_GROUP` build setting), so signing the iOS and visionOS builds needs the group registered for your team, which Xcode's automatic signing does.
+
 UI tests walk the iPhone and iPad flows (type, translate, recover from a missing engine, open history and settings) and attach screenshots to the result bundle:
 
 ```bash
@@ -81,9 +90,13 @@ Packages/TranslationKit/       Local Swift package, no UI
   TranslationCore/             Request / event / result types, prompt rules, coordinator, SSE parsing
   TranslationProviders/        AppleSystemModelProvider, AnthropicProvider, OpenAICompatibleProvider
   ImagePipeline/               Image decoding and Vision OCR with reading-order assembly
+  CaptionFeed/                 Captions shared with the Safari extension through the App Group
   LiveCaptions/                ScreenCaptureKit audio capture, streaming SpeechAnalyzer recognition,
                                caption timeline, Apple Translation and engine-based caption translators
 Design/AppIcon/                Scripts that generate the icon's SVG layers
+TranslateCaptions/             Safari web extension: manifest, content and background scripts, native handler
+Config/                        Info.plist fragments and entitlements (App Group, background mode)
+Tools/ContentScriptTests.swift Runs the extension's content script in WebKit and renders a captioned video
 Notes/                         Product plan and story map
 ```
 

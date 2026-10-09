@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App Group holding the live captions shared between the app and its Safari extension.
+	     Set per platform by the CAPTION_APP_GROUP build setting (see CaptionFeed). -->
+	<key>CaptionFeedAppGroup</key>
+	<string>$(CAPTION_APP_GROUP)</string>
+	<!-- iOS and visionOS: keep capturing the shared screen's audio for live captions while the
+	     person watches the video in Safari. Without it ScreenCaptureKit stops the stream with
+	     SCStreamErrorMissingBackgroundMode once the app leaves the foreground. Ignored on macOS. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>screen-capture</string>
+	</array>
+</dict>
+</plist>

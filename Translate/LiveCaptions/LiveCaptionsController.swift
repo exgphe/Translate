@@ -1,4 +1,5 @@
-#if os(macOS) || os(visionOS)
+#if os(macOS) || os(visionOS) || os(iOS)
+import CaptionFeed
 import Foundation
 import LiveCaptions
 import Observation
@@ -123,6 +124,12 @@ final class LiveCaptionsController {
     @ObservationIgnored private let picker = CaptureContentPicker()
     @ObservationIgnored private var capture: SystemAudioCapture?
     @ObservationIgnored private var pipeline: Task<Void, Never>?
+    /// Captions shared with the Safari extension, which shows them on the page's video. Nil when
+    /// the App Group entitlement is missing (for example in an unsigned build).
+    @ObservationIgnored private let feedStore = CaptionFeedStore.shared()
+    @ObservationIgnored private var feedSessionID = UUID()
+    @ObservationIgnored private var feedWritePending = false
+    @ObservationIgnored private var feedHeartbeat: Task<Void, Never>?
     @ObservationIgnored private var translationChain: Task<Void, Never>?
     @ObservationIgnored private var volatileTranslation: Task<Void, Never>?
     @ObservationIgnored private var lastVolatileSource = ""
@@ -269,6 +276,15 @@ final class LiveCaptionsController {
             #if os(macOS)
             overlay.show(controller: self)
             #endif
+            feedSessionID = UUID()
+            writeFeed()
+            // Readers treat a feed that stops updating as gone, so refresh it during silence too.
+            feedHeartbeat = Task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(2))
+                    writeFeed()
+                }
+            }
             let events = transcriber.transcribe(audio)
             pipeline = Task { await self.consume(events, translator: translator) }
         } catch {
@@ -283,6 +299,9 @@ final class LiveCaptionsController {
     }
 
     private func teardown() async {
+        feedHeartbeat?.cancel()
+        feedHeartbeat = nil
+        writeFeed(active: false)
         pipeline?.cancel()
         translationChain?.cancel()
         volatileTranslation?.cancel()
@@ -318,6 +337,7 @@ final class LiveCaptionsController {
                     newestLineID = line.id
                     if let translator { enqueueTranslation(of: line, using: translator) }
                 }
+                publishFeed()
             }
             if phase == .running { await stop() }
         } catch is CancellationError {
@@ -339,6 +359,7 @@ final class LiveCaptionsController {
             do {
                 let translation = try await translator.translate(line.original, previousLines: context)
                 timeline.setTranslation(translation, forLine: line.id)
+                publishFeed()
             } catch is CancellationError {
             } catch {
                 timeline.markTranslationFailed(forLine: line.id)
@@ -358,6 +379,7 @@ final class LiveCaptionsController {
                 lastVolatileSource = source
                 guard let translation = try? await translator.translate(source, previousLines: []) else { return }
                 timeline.setVolatileTranslation(translation, source: source)
+                publishFeed()
             }
         }
     }
@@ -412,6 +434,36 @@ final class LiveCaptionsController {
             return nil
             #endif
         }
+    }
+
+    // MARK: - Safari extension feed
+
+    /// Shares the captions with the Safari extension, coalescing bursts of updates.
+    private func publishFeed() {
+        guard feedStore != nil, !feedWritePending else { return }
+        feedWritePending = true
+        Task {
+            try? await Task.sleep(for: .milliseconds(100))
+            writeFeed()
+        }
+    }
+
+    private func writeFeed(active: Bool = true) {
+        feedWritePending = false
+        guard let feedStore else { return }
+        let snapshot = CaptionFeedSnapshot(
+            sessionID: feedSessionID,
+            isActive: active && phase == .running,
+            updatedAt: .now,
+            lines: timeline.lines.suffix(8).map {
+                .init(id: $0.id, original: $0.original, translation: $0.translation, finalizedAt: $0.finalizedAt)
+            },
+            volatileOriginal: timeline.volatileOriginal,
+            volatileTranslation: timeline.volatileTranslation,
+            showsOriginal: showsOriginal,
+            language: activeTranslatorName == nil ? spokenLanguage.identifier : targetLanguage.identifier
+        )
+        try? feedStore.write(snapshot)
     }
 
     // MARK: - Display

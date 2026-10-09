@@ -1,0 +1,29 @@
+{
+    "manifest_version": 3,
+    "name": "Translate Live Captions",
+    "description": "Shows live translated captions from the Translate app as a subtitle track on the video you are watching.",
+    "version": "1.0",
+
+    "icons": {
+        "48": "icon-48.png",
+        "96": "icon-96.png",
+        "128": "icon-128.png",
+        "256": "icon-256.png",
+        "512": "icon-512.png"
+    },
+
+    "background": {
+        "scripts": [ "background.js" ],
+        "type": "module"
+    },
+
+    "content_scripts": [{
+        "js": [ "content.js" ],
+        "css": [ "captions.css" ],
+        "matches": [ "<all_urls>" ],
+        "all_frames": true,
+        "run_at": "document_idle"
+    }],
+
+    "permissions": [ "nativeMessaging" ]
+}

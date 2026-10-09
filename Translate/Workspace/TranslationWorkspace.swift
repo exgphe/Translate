@@ -61,6 +61,7 @@ final class TranslationWorkspace {
     var isShowingExplain = false
     var isShowingSettings = false
     var isShowingHistory = false
+    var isShowingLiveCaptions = false
 
     @ObservationIgnored private var activeRequestID: UUID?
     @ObservationIgnored private var translationTask: Task<Void, Never>?

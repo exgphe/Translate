@@ -175,7 +175,7 @@ final class TranslateUITests: XCTestCase {
     }
     #endif
 
-    #if os(visionOS)
+    #if os(visionOS) || os(iOS)
     /// The Live Captions panel opens from the toolbar menu. Simulators have no ScreenCaptureKit,
     /// so Start must be disabled with an explanation instead of failing later.
     @MainActor

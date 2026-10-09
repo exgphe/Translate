@@ -1,0 +1,12 @@
+/* Plyr hides this WebKit shadow element to use its own HTML caption overlay. Safari also
+   paints this element into the iPhone's native fullscreen subtitle layer; display:none
+   leaves both inline and fullscreen captions blank even with an active, showing cue. */
+video[data-translate-live-captions]::-webkit-media-text-track-container {
+    display: block !important;
+}
+
+/* Use just Safari's renderer while our live translation is showing. Restore the player's
+   caption overlay as soon as our caption clears or the feed stops. */
+.plyr[data-translate-native-captions] .plyr__captions {
+    display: none !important;
+}

@@ -16,6 +16,7 @@ let package = Package(
         .library(name: "TranslationProviders", targets: ["TranslationProviders"]),
         .library(name: "ImagePipeline", targets: ["ImagePipeline"]),
         .library(name: "LiveCaptions", targets: ["LiveCaptions"]),
+        .library(name: "CaptionFeed", targets: ["CaptionFeed"]),
     ],
     targets: [
         // Domain layer: request/result types, prompt rules, coordination. No UI, no vendor SDKs.
@@ -27,9 +28,13 @@ let package = Package(
         // Live captions for audio playing in another app: capture, streaming speech recognition,
         // caption timeline, and fast caption translation. No UI.
         .target(name: "LiveCaptions", dependencies: ["TranslationCore"], swiftSettings: swiftSettings),
+        // The captions the app shares with its Safari extension through an App Group. Foundation
+        // only, so the extension stays small.
+        .target(name: "CaptionFeed", swiftSettings: swiftSettings),
         .testTarget(name: "TranslationCoreTests", dependencies: ["TranslationCore"], swiftSettings: swiftSettings),
         .testTarget(name: "TranslationProvidersTests", dependencies: ["TranslationProviders"], swiftSettings: swiftSettings),
         .testTarget(name: "ImagePipelineTests", dependencies: ["ImagePipeline"], swiftSettings: swiftSettings),
         .testTarget(name: "LiveCaptionsTests", dependencies: ["LiveCaptions", "TranslationCore"], swiftSettings: swiftSettings),
+        .testTarget(name: "CaptionFeedTests", dependencies: ["CaptionFeed"], swiftSettings: swiftSettings),
     ]
 )

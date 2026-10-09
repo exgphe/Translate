@@ -60,6 +60,22 @@ struct ContentView: View {
             SettingsView()
         }
         #endif
+        #if os(iOS)
+        .sheet(isPresented: $workspace.isShowingLiveCaptions) {
+            NavigationStack {
+                LiveCaptionsView()
+                    .navigationTitle("Live Captions")
+                    .toolbarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { workspace.isShowingLiveCaptions = false }
+                        }
+                    }
+            }
+            .environment(model.liveCaptions)
+            .environment(model.registry)
+        }
+        #endif
         .task(id: "\(scenePhase)-\(settings.autoPasteEnabled)") {
             guard needsClipboardWatch, shouldWatchClipboard else { return }
             while !Task.isCancelled {
@@ -177,6 +193,8 @@ struct WorkspaceToolbar: ToolbarContent {
                 Button("Import Image File", systemImage: "folder") { workspace.isImportingImage = true }
                 #if os(visionOS)
                 Button("Live Captions", systemImage: "captions.bubble") { openWindow(id: "live-captions", value: "main") }
+                #else
+                Button("Live Captions", systemImage: "captions.bubble") { workspace.isShowingLiveCaptions = true }
                 #endif
                 Divider()
                 Button("Clear", systemImage: "trash", role: .destructive) { workspace.clear() }

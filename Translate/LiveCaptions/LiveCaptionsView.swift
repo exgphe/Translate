@@ -1,4 +1,4 @@
-#if os(macOS) || os(visionOS)
+#if os(macOS) || os(visionOS) || os(iOS)
 import LiveCaptions
 import SwiftUI
 import TranslationCore
@@ -78,20 +78,30 @@ struct LiveCaptionsView: View {
 
             Section("Display") {
                 Toggle("Show original under the translation", isOn: $controller.showsOriginal)
+                #if os(iOS)
+                // Safari draws the subtitle track, so the system caption style applies.
+                Text("Caption size and style follow Settings › Accessibility › Subtitles & Captioning.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                #else
                 LabeledContent("Text size") {
                     Slider(value: $controller.textSize, in: 16...56, step: 2)
                         .frame(maxWidth: 220)
                 }
+                #endif
                 #if os(macOS)
                 Toggle("Adjust caption position", isOn: $controller.isAdjustingPosition)
                 Text("Captions float at the bottom of the screen, also over full-screen video. Turn this on to drag them elsewhere.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                #else
+                #elseif os(visionOS)
                 Text("Captions appear in their own window. Place it under the video.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 #endif
+                Text(extensionHint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -154,9 +164,21 @@ struct LiveCaptionsView: View {
         }
         #if os(macOS)
         return "Start, then pick a Safari window (or any app) in the system picker. Only its sound is used, recognized on this Mac, and nothing is recorded."
+        #elseif os(iOS)
+        return "Start, then share your screen in the system picker and switch to the video in Safari. Translate keeps listening in the background. Only the sound is used, recognized on this device, and nothing is recorded."
         #else
         return "Start, then pick what to share in the system picker. Only the sound is used, recognized on this device, and nothing is recorded."
         #endif
+    }
+
+    /// Where the captions show up inside Safari, and how to turn that on.
+    private var extensionHint: String {
+        #if os(macOS)
+        let settings = "Safari › Settings › Extensions"
+        #else
+        let settings = "Settings › Apps › Safari › Extensions"
+        #endif
+        return "In Safari, the Translate Live Captions extension also shows these captions as a subtitle track on the video you are watching, including in full screen. Turn it on in \(settings) and allow it on all websites."
     }
 
     @ViewBuilder
