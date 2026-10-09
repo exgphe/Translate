@@ -11,6 +11,9 @@
     const IDLE_POLL_MS = 3000;
     const NO_VIDEO_RECHECK_MS = 2000;
     const CUE_SECONDS = 6;
+    const CUE_REFRESH_SECONDS = 3;
+    const REQUEST_TIMEOUT_MS = 4000;
+    const REPLY_GRACE_MS = 8000;
     const TRACK_LABEL = "Live translation";
     const VIDEO_ATTRIBUTE = "data-translate-live-captions";
     const PLAYER_ATTRIBUTE = "data-translate-native-captions";
@@ -18,6 +21,32 @@
     const state = { video: null, player: null, track: null, cue: null, text: "", session: null };
     let fullscreenVideo = null;
     let latestCaption = null;
+    let pollingEnabled = false;
+    let timer = null;
+    let pending = null;
+    let nextPollAt = 0;
+    let failures = 0;
+    let lastReportAt = 0;
+    const progress = { status: "idle", requests: 0, responses: 0, timeouts: 0, lastReplyAt: null, mediaEvents: 0, lastMediaEventAt: null, source: null };
+
+    function diagnostics() {
+        return {
+            ...progress, pending: Boolean(pending), nextPollAt, failures,
+            reportedAt: Date.now(), replyAge: progress.lastReplyAt === null ? null : (Date.now() - progress.lastReplyAt) / 1000,
+            hidden: document.hidden,
+            fullscreen: Boolean(fullscreenVideo || state.video?.webkitDisplayingFullscreen || state.video?.webkitPresentationMode === "fullscreen"),
+            mediaTime: state.video?.currentTime ?? null,
+            trackMode: state.track?.mode ?? null,
+            cues: state.track?.cues?.length ?? 0,
+            activeCues: state.track?.activeCues?.length ?? 0,
+        };
+    }
+
+    function report() {
+        // Metadata only: a remote Safari inspector can diagnose stalls without logging text.
+        document.documentElement?.setAttribute("data-translate-caption-status", JSON.stringify(diagnostics()));
+        lastReportAt = Date.now();
+    }
 
     function area(video) {
         const rect = video.getBoundingClientRect();
@@ -94,7 +123,9 @@
         const now = video.currentTime;
         if (!Number.isFinite(now)) return;
         if (state.cue && text === state.text && state.cue.startTime <= now && now < state.cue.endTime && Array.from(track.cues || []).includes(state.cue)) {
-            state.cue.endTime = Math.max(state.cue.endTime, now + CUE_SECONDS);
+            // Changing endTime removes/re-adds the active cue in WebKit. Avoid rebuilding
+            // the native caption layer on every poll when the text has not changed.
+            if (state.cue.endTime - now <= CUE_REFRESH_SECONDS) state.cue.endTime = now + CUE_SECONDS;
             return;
         }
         clearCue();
@@ -104,67 +135,143 @@
         state.text = text;
     }
 
-    async function poll() {
-        let reply = null;
-        try {
-            reply = await browser.runtime.sendMessage({ type: "captions" });
-        } catch (_) {
-            reply = null;
-        }
-        if (!reply || !reply.active) {
+    function refresh() {
+        if (!latestCaption) return;
+        if (Date.now() >= latestCaption.expiresAt) {
             latestCaption = null;
-            if (state.session !== null) { detach(); state.session = null; }
+            show("", "");
+            return;
+        }
+        try { show(latestCaption.text, latestCaption.language); } catch (_) { /* next poll retries */ }
+    }
+
+    function failedRequest(timedOut) {
+        failures += 1;
+        if (timedOut) progress.timeouts += 1;
+        progress.status = timedOut ? "timeout" : "transport-error";
+        refresh();
+        report();
+        return Math.min(30_000, 1000 * 2 ** Math.min(failures - 1, 5));
+    }
+
+    function accept(reply) {
+        // A bridge failure is different from a feed that explicitly stopped. Keep the last
+        // reply only for a bounded grace period, while retrying with backoff.
+        if (!reply || typeof reply.active !== "boolean" || reply.status === "transport-error") return failedRequest(false);
+        failures = 0;
+        progress.responses += 1;
+        progress.lastReplyAt = Date.now();
+        progress.status = reply.status || (reply.active ? "active" : "inactive");
+        progress.source = reply.diagnostics || null;
+        if (!reply.active) {
+            latestCaption = null;
+            detach();
+            state.session = null;
+            report();
             return IDLE_POLL_MS;
         }
-        if (reply.session !== state.session) {
-            clearCue();
-            state.session = reply.session;
-        }
-        latestCaption = { text: reply.text || "", language: reply.language };
-        show(latestCaption.text, latestCaption.language);
+        if (reply.session !== state.session) { clearCue(); state.session = reply.session; }
+        latestCaption = {
+            text: reply.text || "", language: reply.language,
+            expiresAt: Math.min(Date.now() + REPLY_GRACE_MS, Number.isFinite(reply.expiresAt) ? reply.expiresAt * 1000 : Infinity),
+        };
+        refresh();
+        report();
         return ACTIVE_POLL_MS;
     }
 
-    async function loop() {
-        let delay = ACTIVE_POLL_MS;
+    // Each request has a deadline independent of the Promise returned by Safari. Media
+    // events also check it, so a throttled DOM timeout cannot hold the loop indefinitely.
+    function poll() {
+        if (pending) return pending.promise;
+        let resolve;
+        const promise = new Promise((done) => { resolve = done; });
+        const request = { promise, deadline: Date.now() + REQUEST_TIMEOUT_MS, timeout: null, expire: null };
+        pending = request;
+        progress.requests += 1;
+        const finish = (reply, timedOut = false, transportError = false) => {
+            if (pending !== request) return; // a late reply must not overwrite newer captions
+            clearTimeout(request.timeout);
+            pending = null;
+            let delay;
+            try { delay = timedOut || transportError ? failedRequest(timedOut) : accept(reply); }
+            catch (_) { delay = failedRequest(false); }
+            nextPollAt = Date.now() + delay;
+            resolve(delay);
+            if (pollingEnabled) schedule();
+        };
+        request.expire = () => finish(null, true);
+        request.timeout = setTimeout(request.expire, REQUEST_TIMEOUT_MS);
         try {
-            delay = await poll();
-        } catch (error) {
-            // A player can replace its media or tracks while we are updating them. Retry
-            // instead of losing the polling loop for the rest of the page's lifetime.
-            console.warn("Translate Live Captions: could not update the subtitle track", error);
-        } finally {
-            const watchingFullscreen = fullscreenVideo || state.video?.webkitDisplayingFullscreen || state.video?.webkitPresentationMode === "fullscreen";
-            setTimeout(loop, document.hidden && !watchingFullscreen ? IDLE_POLL_MS : delay);
-        }
+            Promise.resolve(browser.runtime.sendMessage({ type: "captions" })).then(
+                (reply) => finish(reply), () => finish(null, false, true)
+            );
+        } catch (_) { finish(null, false, true); }
+        report();
+        return promise;
     }
 
-    function refresh() {
-        if (!latestCaption) return;
-        try { show(latestCaption.text, latestCaption.language); } catch (_) { /* next poll retries */ }
+    function schedule() {
+        clearTimeout(timer);
+        const fullscreen = fullscreenVideo || state.video?.webkitDisplayingFullscreen || state.video?.webkitPresentationMode === "fullscreen";
+        const delay = Math.max(0, nextPollAt - Date.now());
+        timer = setTimeout(wake, document.hidden && !fullscreen ? Math.max(IDLE_POLL_MS, delay) : delay);
+    }
+
+    function wake(force = false) {
+        if (!pollingEnabled) return;
+        refresh();
+        if (pending && Date.now() >= pending.deadline) pending.expire();
+        if (!pending && (Date.now() >= nextPollAt || (force && failures === 0))) {
+            clearTimeout(timer);
+            void poll();
+        }
+        if (Date.now() - lastReportAt >= 1000) report();
+    }
+
+    function start() { pollingEnabled = true; nextPollAt = 0; wake(); }
+    function stop() {
+        pollingEnabled = false;
+        clearTimeout(timer);
+        if (pending) { pending.expire(); }
+        latestCaption = null;
+        detach();
     }
 
     document.addEventListener("webkitbeginfullscreen", (event) => {
         if (event.target.tagName !== "VIDEO") return;
         fullscreenVideo = event.target;
         refresh();
+        wake(true);
     }, true);
     document.addEventListener("webkitendfullscreen", (event) => {
         if (event.target === fullscreenVideo) fullscreenVideo = null;
         refresh();
+        wake(true);
     }, true);
-    for (const event of ["fullscreenchange", "webkitfullscreenchange", "webkitpresentationmodechanged", "loadedmetadata", "seeked", "play"]) {
-        document.addEventListener(event, refresh, true);
+    for (const event of ["fullscreenchange", "webkitfullscreenchange", "webkitpresentationmodechanged", "loadedmetadata", "seeked", "play", "playing", "visibilitychange"]) {
+        document.addEventListener(event, () => { refresh(); wake(true); }, true);
     }
+    document.addEventListener("timeupdate", (event) => {
+        // A first request can stall before there is a track, and an inactive feed detaches
+        // it. The video being played must still be able to wake polling in those states.
+        if (event.target === state.video || event.target === fullscreenVideo || event.target === pickVideo()) {
+            progress.mediaEvents += 1;
+            progress.lastMediaEventAt = Date.now();
+            wake();
+        }
+    }, true);
+    window.addEventListener("pageshow", () => wake(true));
+    window.addEventListener("focus", () => wake(true));
 
     // Frames without a video stay quiet until one appears.
     function waitForVideo() {
-        if (document.querySelector("video")) loop();
+        if (document.querySelector("video")) start();
         else setTimeout(waitForVideo, NO_VIDEO_RECHECK_MS);
     }
 
     if (globalThis.__translateCaptionsTestHooks) {
-        globalThis.__translateCaptionsTestHooks({ show, pickVideo, poll, state });
+        globalThis.__translateCaptionsTestHooks({ show, pickVideo, poll, state, start, stop, wake, diagnostics });
     } else {
         waitForVideo();
     }

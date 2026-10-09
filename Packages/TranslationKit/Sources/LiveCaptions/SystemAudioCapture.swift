@@ -1,6 +1,16 @@
 #if os(macOS) || os(visionOS) || os(iOS)
 import CoreMedia
 import Foundation
+
+public struct AudioCaptureProgress: Sendable {
+    public var lastAudioAt: Date?
+    public var bufferCount: Int
+
+    public init(lastAudioAt: Date? = nil, bufferCount: Int = 0) {
+        self.lastAudioAt = lastAudioAt
+        self.bufferCount = bufferCount
+    }
+}
 #if canImport(ScreenCaptureKit)
 @preconcurrency import ScreenCaptureKit
 
@@ -17,6 +27,9 @@ public final class SystemAudioCapture: NSObject, @unchecked Sendable {
     private var stream: SCStream?
     private var continuation: AsyncStream<AudioChunk>.Continuation?
     private var stopHandler: (@Sendable (LiveCaptionsError?) -> Void)?
+    private var audioProgress = AudioCaptureProgress()
+
+    public var progress: AudioCaptureProgress { lock.withLock { audioProgress } }
 
     override public init() {}
 
@@ -53,6 +66,7 @@ public final class SystemAudioCapture: NSObject, @unchecked Sendable {
             self.stream = stream
             self.continuation = continuation
             self.stopHandler = onStop
+            self.audioProgress = AudioCaptureProgress()
         }
         do {
             try await stream.startCapture()
@@ -86,7 +100,12 @@ public final class SystemAudioCapture: NSObject, @unchecked Sendable {
 extension SystemAudioCapture: SCStreamOutput, SCStreamDelegate {
     public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio, let chunk = AudioChunk(copying: sampleBuffer) else { return }
-        _ = lock.withLock { continuation }?.yield(chunk)
+        let continuation = lock.withLock {
+            audioProgress.lastAudioAt = .now
+            audioProgress.bufferCount += 1
+            return self.continuation
+        }
+        _ = continuation?.yield(chunk)
     }
 
     public func stream(_ stream: SCStream, didStopWithError error: any Error) {
@@ -159,6 +178,7 @@ public struct CaptureSource: Sendable {}
 
 public final class SystemAudioCapture: Sendable {
     public init() {}
+    public var progress: AudioCaptureProgress { AudioCaptureProgress() }
 
     public func start(
         source: CaptureSource,

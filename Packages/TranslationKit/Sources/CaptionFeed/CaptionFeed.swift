@@ -17,6 +17,20 @@ public enum CaptionFeed {
 }
 
 public struct CaptionFeedSnapshot: Codable, Equatable, Sendable {
+    /// Progress only; no audio or caption text is included in diagnostic replies.
+    public struct Diagnostics: Codable, Equatable, Sendable {
+        public var lastAudioAt: Date?
+        public var audioBufferCount: Int
+        public var lastTranscriptAt: Date?
+        public var transcriptEventCount: Int
+
+        public init(lastAudioAt: Date?, audioBufferCount: Int, lastTranscriptAt: Date?, transcriptEventCount: Int) {
+            self.lastAudioAt = lastAudioAt
+            self.audioBufferCount = audioBufferCount
+            self.lastTranscriptAt = lastTranscriptAt
+            self.transcriptEventCount = transcriptEventCount
+        }
+    }
     public struct Line: Codable, Equatable, Sendable {
         public var id: Int
         public var original: String
@@ -49,6 +63,7 @@ public struct CaptionFeedSnapshot: Codable, Equatable, Sendable {
     public var showsOriginal: Bool
     /// BCP-47 code of the caption text, used as the subtitle track's language.
     public var language: String
+    public var diagnostics: Diagnostics?
 
     public init(
         sessionID: UUID,
@@ -58,7 +73,8 @@ public struct CaptionFeedSnapshot: Codable, Equatable, Sendable {
         volatileOriginal: String,
         volatileTranslation: String?,
         showsOriginal: Bool,
-        language: String
+        language: String,
+        diagnostics: Diagnostics? = nil
     ) {
         self.sessionID = sessionID
         self.isActive = isActive
@@ -68,6 +84,7 @@ public struct CaptionFeedSnapshot: Codable, Equatable, Sendable {
         self.volatileTranslation = volatileTranslation
         self.showsOriginal = showsOriginal
         self.language = language
+        self.diagnostics = diagnostics
     }
 
     public func isLive(now: Date, timeout: TimeInterval = 15) -> Bool {
@@ -142,12 +159,25 @@ public struct CaptionFeedStore: Sendable {
 /// only, as native messaging requires.
 public enum CaptionFeedReply {
     public static func make(from snapshot: CaptionFeedSnapshot?, now: Date = .now) -> [String: Any] {
-        guard let snapshot, snapshot.isLive(now: now) else { return ["active": false] }
+        guard let snapshot else { return ["active": false, "status": "missing"] }
+        let active = snapshot.isLive(now: now)
+        var diagnostics: [String: Any] = ["feedAge": max(0, now.timeIntervalSince(snapshot.updatedAt))]
+        if let progress = snapshot.diagnostics {
+            diagnostics["audioBufferCount"] = progress.audioBufferCount
+            diagnostics["transcriptEventCount"] = progress.transcriptEventCount
+            if let time = progress.lastAudioAt { diagnostics["audioAge"] = max(0, now.timeIntervalSince(time)) }
+            if let time = progress.lastTranscriptAt { diagnostics["transcriptAge"] = max(0, now.timeIntervalSince(time)) }
+        }
+        // Return progress even for stale feeds: the extension can distinguish an app/ASR
+        // stall from a stopped session or a native-messaging failure.
         return [
-            "active": true,
+            "active": active,
+            "status": active ? "active" : (snapshot.isActive ? "stale" : "stopped"),
             "session": snapshot.sessionID.uuidString,
             "language": snapshot.language,
-            "text": snapshot.cueText(now: now),
+            "text": active ? snapshot.cueText(now: now) : "",
+            "expiresAt": snapshot.updatedAt.addingTimeInterval(15).timeIntervalSince1970,
+            "diagnostics": diagnostics,
         ]
     }
 }

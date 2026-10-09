@@ -128,8 +128,10 @@ final class LiveCaptionsController {
     /// the App Group entitlement is missing (for example in an unsigned build).
     @ObservationIgnored private let feedStore = CaptionFeedStore.shared()
     @ObservationIgnored private var feedSessionID = UUID()
-    @ObservationIgnored private var feedWritePending = false
+    @ObservationIgnored private var feedPublishTask: Task<Void, Never>?
     @ObservationIgnored private var feedHeartbeat: Task<Void, Never>?
+    @ObservationIgnored private var lastTranscriptAt: Date?
+    @ObservationIgnored private var transcriptEventCount = 0
     @ObservationIgnored private var translationChain: Task<Void, Never>?
     @ObservationIgnored private var volatileTranslation: Task<Void, Never>?
     @ObservationIgnored private var lastVolatileSource = ""
@@ -229,46 +231,58 @@ final class LiveCaptionsController {
 
     func start() async {
         guard !phase.isActive else { return }
+        let session = UUID()
+        feedSessionID = session
         guard Self.isCaptureAvailable else {
             phase = .failed(LiveCaptionsError.captureUnavailable.localizedDescription)
             return
         }
         lastTranslationError = nil
+        phase = .preparing("Preparing translation…")
 
         let translator: (any CaptionTranslating)?
         do {
             translator = try await makeTranslator()
         } catch {
+            guard session == feedSessionID, phase.isActive else { return }
             phase = .failed(error.localizedDescription)
             return
         }
 
+        guard session == feedSessionID, phase.isActive else { return }
         phase = .choosingSource
         let source: CaptureSource
         do {
             source = try await picker.pick()
         } catch LiveCaptionsError.pickerCancelled {
+            guard session == feedSessionID else { return }
             phase = .idle
             return
         } catch {
+            guard session == feedSessionID else { return }
             phase = .failed(error.localizedDescription)
             return
         }
 
+        guard session == feedSessionID, phase.isActive else { return }
         phase = .preparing("Preparing speech recognition…")
         do {
             let transcriber = try await LiveTranscriber.prepare(locale: Locale(identifier: spokenLocaleIdentifier)) { [weak self] fraction in
                 Task { @MainActor in
-                    guard let self, case .preparing = self.phase else { return }
+                    guard let self, session == self.feedSessionID, case .preparing = self.phase else { return }
                     self.phase = .preparing("Downloading the speech model… \(Int(fraction * 100))%")
                 }
             }
+            guard session == feedSessionID, phase.isActive else { return }
             let capture = SystemAudioCapture()
             let audio = try await capture.start(source: source) { [weak self] error in
-                Task { @MainActor in self?.captureEnded(error) }
+                Task { @MainActor in self?.captureEnded(error, session: session) }
             }
+            guard session == feedSessionID, phase.isActive else { await capture.stop(); return }
             self.capture = capture
             timeline.reset()
+            lastTranscriptAt = nil
+            transcriptEventCount = 0
             newestLineID = -1
             lastVolatileSource = ""
             activeTranslatorName = translator?.displayName
@@ -276,31 +290,37 @@ final class LiveCaptionsController {
             #if os(macOS)
             overlay.show(controller: self)
             #endif
-            feedSessionID = UUID()
             writeFeed()
             // Readers treat a feed that stops updating as gone, so refresh it during silence too.
             feedHeartbeat = Task {
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(2))
+                    do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                    guard session == feedSessionID, phase == .running else { return }
                     writeFeed()
                 }
             }
             let events = transcriber.transcribe(audio)
-            pipeline = Task { await self.consume(events, translator: translator) }
+            pipeline = Task { await self.consume(events, translator: translator, session: session) }
         } catch {
-            phase = .failed(error.localizedDescription)
+            guard session == feedSessionID, phase.isActive else { return }
             await teardown()
+            guard session == feedSessionID else { return }
+            phase = .failed(error.localizedDescription)
         }
     }
 
     func stop() async {
+        let session = feedSessionID
         await teardown()
-        if phase.isActive { phase = .idle }
+        if session == feedSessionID, phase.isActive { phase = .idle }
     }
 
     private func teardown() async {
+        let session = feedSessionID
         feedHeartbeat?.cancel()
         feedHeartbeat = nil
+        feedPublishTask?.cancel()
+        feedPublishTask = nil
         writeFeed(active: false)
         pipeline?.cancel()
         translationChain?.cancel()
@@ -311,6 +331,7 @@ final class LiveCaptionsController {
         let capture = self.capture
         self.capture = nil
         await capture?.stop()
+        guard session == feedSessionID else { return }
         picker.deactivate()
         isAdjustingPosition = false
         #if os(macOS)
@@ -318,16 +339,21 @@ final class LiveCaptionsController {
         #endif
     }
 
-    private func captureEnded(_ error: LiveCaptionsError?) {
+    private func captureEnded(_ error: LiveCaptionsError?, session: UUID) {
         Task {
+            guard session == feedSessionID else { return }
             await teardown()
+            guard session == feedSessionID else { return }
             phase = error.map { .failed($0.localizedDescription) } ?? .idle
         }
     }
 
-    private func consume(_ events: AsyncThrowingStream<TranscriptEvent, any Error>, translator: (any CaptionTranslating)?) async {
+    private func consume(_ events: AsyncThrowingStream<TranscriptEvent, any Error>, translator: (any CaptionTranslating)?, session: UUID) async {
         do {
             for try await event in events {
+                guard !Task.isCancelled, session == feedSessionID else { return }
+                lastTranscriptAt = .now
+                transcriptEventCount += 1
                 switch event {
                 case .volatile(let text):
                     timeline.updateVolatile(text)
@@ -339,29 +365,34 @@ final class LiveCaptionsController {
                 }
                 publishFeed()
             }
-            if phase == .running { await stop() }
+            if session == feedSessionID, phase == .running { await stop() }
         } catch is CancellationError {
             // Stopped on purpose.
         } catch {
-            phase = .failed(error.localizedDescription)
+            guard session == feedSessionID else { return }
             await teardown()
+            guard session == feedSessionID else { return }
+            phase = .failed(error.localizedDescription)
         }
     }
 
     /// Finished phrases are translated in order. A slow engine that falls behind skips lines
     /// that have already scrolled away, so the captions on screen stay current.
     private func enqueueTranslation(of line: CaptionLine, using translator: any CaptionTranslating) {
+        let session = feedSessionID
         let previous = translationChain
         let context = timeline.context(before: line.id, count: 3)
         translationChain = Task {
             await previous?.value
-            guard !Task.isCancelled, line.id >= newestLineID - 2 else { return }
+            guard !Task.isCancelled, session == feedSessionID, line.id >= newestLineID - 2 else { return }
             do {
                 let translation = try await translator.translate(line.original, previousLines: context)
+                guard !Task.isCancelled, session == feedSessionID else { return }
                 timeline.setTranslation(translation, forLine: line.id)
                 publishFeed()
             } catch is CancellationError {
             } catch {
+                guard !Task.isCancelled, session == feedSessionID else { return }
                 timeline.markTranslationFailed(forLine: line.id)
                 lastTranslationError = Self.describe(error)
             }
@@ -371,13 +402,15 @@ final class LiveCaptionsController {
     /// Keeps at most one provisional translation of the phrase in progress in flight.
     private func translateVolatile(using translator: any CaptionTranslating) {
         guard volatileTranslation == nil else { return }
+        let session = feedSessionID
         volatileTranslation = Task {
-            defer { volatileTranslation = nil }
-            while !Task.isCancelled {
+            defer { if session == feedSessionID { volatileTranslation = nil } }
+            while !Task.isCancelled, session == feedSessionID {
                 let source = timeline.volatileOriginal
                 guard !source.isEmpty, source != lastVolatileSource else { return }
                 lastVolatileSource = source
                 guard let translation = try? await translator.translate(source, previousLines: []) else { return }
+                guard !Task.isCancelled, session == feedSessionID else { return }
                 timeline.setVolatileTranslation(translation, source: source)
                 publishFeed()
             }
@@ -440,17 +473,19 @@ final class LiveCaptionsController {
 
     /// Shares the captions with the Safari extension, coalescing bursts of updates.
     private func publishFeed() {
-        guard feedStore != nil, !feedWritePending else { return }
-        feedWritePending = true
-        Task {
-            try? await Task.sleep(for: .milliseconds(100))
+        guard feedStore != nil, feedPublishTask == nil else { return }
+        let session = feedSessionID
+        feedPublishTask = Task {
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            guard session == feedSessionID, phase == .running else { return }
+            feedPublishTask = nil
             writeFeed()
         }
     }
 
     private func writeFeed(active: Bool = true) {
-        feedWritePending = false
         guard let feedStore else { return }
+        let audio = capture?.progress ?? AudioCaptureProgress()
         let snapshot = CaptionFeedSnapshot(
             sessionID: feedSessionID,
             isActive: active && phase == .running,
@@ -461,7 +496,9 @@ final class LiveCaptionsController {
             volatileOriginal: timeline.volatileOriginal,
             volatileTranslation: timeline.volatileTranslation,
             showsOriginal: showsOriginal,
-            language: activeTranslatorName == nil ? spokenLanguage.identifier : targetLanguage.identifier
+            language: activeTranslatorName == nil ? spokenLanguage.identifier : targetLanguage.identifier,
+            diagnostics: .init(lastAudioAt: audio.lastAudioAt, audioBufferCount: audio.bufferCount,
+                               lastTranscriptAt: lastTranscriptAt, transcriptEventCount: transcriptEventCount)
         )
         try? feedStore.write(snapshot)
     }

@@ -51,4 +51,34 @@ struct CaptionFeedTests {
         #expect(live["session"] as? String == "11111111-2222-3333-4444-555555555555")
         #expect(PropertyListSerialization.propertyList(live, isValidFor: .binary))
     }
+
+    @Test func staleReplyRetainsProgressWithoutCaptionContent() throws {
+        var feed = snapshot(lines: [line(0, "Private words.", "私人文字。", ago: 1)], updatedAgo: 60)
+        feed.diagnostics = .init(lastAudioAt: now.addingTimeInterval(-2), audioBufferCount: 1234,
+                                 lastTranscriptAt: now.addingTimeInterval(-45), transcriptEventCount: 42)
+        let reply = CaptionFeedReply.make(from: feed, now: now)
+        #expect(reply["active"] as? Bool == false)
+        #expect(reply["status"] as? String == "stale")
+        #expect(reply["text"] as? String == "")
+        let progress = try #require(reply["diagnostics"] as? [String: Any])
+        #expect(progress["feedAge"] as? Double == 60)
+        #expect(progress["audioAge"] as? Double == 2)
+        #expect(progress["transcriptAge"] as? Double == 45)
+        #expect(progress["audioBufferCount"] as? Int == 1234)
+        #expect(progress["transcriptEventCount"] as? Int == 42)
+        #expect(PropertyListSerialization.propertyList(reply, isValidFor: .binary))
+    }
+
+    @Test func diagnosticsRoundTripAndOldFeedsStillDecode() throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        var feed = snapshot()
+        feed.diagnostics = .init(lastAudioAt: now, audioBufferCount: 1, lastTranscriptAt: nil, transcriptEventCount: 0)
+        #expect(try decoder.decode(CaptionFeedSnapshot.self, from: encoder.encode(feed)) == feed)
+        var old = try #require(JSONSerialization.jsonObject(with: encoder.encode(feed)) as? [String: Any])
+        old.removeValue(forKey: "diagnostics")
+        #expect(try decoder.decode(CaptionFeedSnapshot.self, from: JSONSerialization.data(withJSONObject: old)).diagnostics == nil)
+    }
 }

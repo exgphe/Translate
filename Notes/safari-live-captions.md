@@ -97,3 +97,79 @@ DOM 标记和 TextTrack 可用于跨世界诊断。
 模拟器的 caption feed 是测试数据，没有使用 App Group/native messaging；
 视频为生成的 MP4。这验证了原生字幕渲染及 CSS 问题，真机上的该网页 HLS
 与实际字幕 feed 仍应在重新安装扩展后做最终验证。
+
+## 播放几分钟后停止更新
+
+真机反馈：屏幕共享指示仍在，字幕几分钟后消失或停止，拖动进度或切回 App 后恢复。
+这不是确认系统停止采集的证据，也不能单凭“拖动恢复”确定 feed 恢复了：
+旧实现的 seeked 只重新显示缓存字幕，能让已经过期的 cue 临时重新出现。
+
+本次修复处理了可复现的恢复缺口：
+
+- content script 的消息请求有 4 秒截止时间。超时后退避重试，迟到回复不能覆盖新字幕。
+  `timeupdate` 也检查截止时间、字幕有效期和下一次请求，作为 DOM 定时器被延迟时的恢复入口。
+  首次请求还没有轨道、feed 变为 inactive 后，也允许当前播放视频唤醒轮询。
+  这个入口依赖媒体事件仍能执行；如果 WebKit 已暂停整个页面的 JavaScript，
+  网页脚本不能自行唤醒它，原生视频继续播放也不能证明脚本仍在运行。
+- 临时 native messaging 失败不再伪装成用户关闭字幕。缓存文字有最多 8 秒的宽限，
+  且不会超过 native feed 的有效期；seek 不会将过期缓存重新显示。
+- 相同文字不再每 350 毫秒修改 cue.endTime。WebKit 的这个修改会实际移除、重新加入
+  cue，重建字幕显示树；现在只在 cue 快到期时续期。
+- background script 合并不同 frame 的 native 请求，提供 8 秒截止时间、短缓存和退避。
+  JS 无法取消已经发出的 NSExtension 请求，所以同时未结束的 native 请求最多两个，
+  避免系统扩展请求无限积压。两个永久不结束的底层请求仍需要 Safari/系统恢复，
+  不能声称网页 JS 能修复任意原生进程故障。
+- 音频输入与识别结果共同管理生命周期。识别器出错或结束时立即结束输入，
+  不再等待永远运行的音频流才观察错误；取消与启动失败也会完成清理。
+  heartbeat 和延迟发布会检查会话，旧任务不能在新会话中继续发布或停止采集。
+
+### 不记录字幕内容的状态诊断
+
+用 Safari 远程 Web Inspector 选择视频所在的 frame，运行：
+
+```js
+JSON.parse(document.documentElement.getAttribute("data-translate-caption-status") || "{}")
+```
+
+在出现故障时比较两次读数：
+
+| 读数 | 可定位的问题 |
+| --- | --- |
+| mediaEvents 增长，status 为 timeout / transport-error，responses 不增长 | 扩展消息通道停滞 |
+| status 为 stale，source.feedAge 持续增长 | App 未继续发布字幕文件；不能仅凭此区分 App 被暂停与写入失败 |
+| source.audioBufferCount 增长，transcriptEventCount 不增长 | 音频仍进入 App，识别没有新结果；需排除视频本身没有人说话 |
+| feedAge 很小，识别及回复计数均增长，cue/画面仍停滞 | 检查 TextTrack 时间轴与原生字幕渲染 |
+| reportedAt 和 lastMediaEventAt 都不再变化 | 页面 JS / 媒体事件没有继续执行 |
+
+source.audioAge 和 transcriptAge 是 App 最近采集/识别事件距 native 回复的秒数。
+replyAge 是距最后一次成功回复的秒数。诊断只包含时间、数量和状态，不包含音频、
+字幕文字或网站 URL。旧版 feed 文件仍可读取。
+
+验证命令：
+
+```sh
+node Tools/CaptionPollingTests.mjs
+cd Packages/TranslationKit
+swift test --filter CaptionFeedTests --filter LiveCaptionsTests
+```
+
+确定性故障注入、macOS WebKit 渲染和 Swift 的识别生命周期测试已通过；
+这些测试没有复现真机的屏幕采集 + ASR + Safari 长时间后台运行。
+本次真机精确原因仍需依据上面的状态信息确认。
+
+本次恢复修复的验证：
+
+- Node：16 项轮询回归通过，覆盖挂起/迟到回复、定时器延迟、首次无轨道、
+  inactive 后恢复、过期缓存与跨 frame native 请求合并/上限。
+- Swift：14 项 LiveCaptions、7 项 CaptionFeed 测试通过，含识别结果失败时
+  结束音频输入、取消清理以及正常结束时排空 final 结果。
+- macOS WKWebView：25 项轨道与实际字幕像素检查通过。
+- 最新 iOS 模拟器和无签名真机目标构建成功。
+- iOS 27.0 / iPhone 18 Pro 模拟器 Safari：原生全屏连续播放 240 秒 HLS，
+  模拟一次 6 秒消息延迟和一次消息拒绝，完整播放后 mock 请求数为 782，
+  两次故障均已触发，媒体事件持续增长。另用递增字幕序号确认原生画面更新，
+  超时及拒绝后回复、cue 序号与原生画面继续增长，无需 seek 或切回 App。
+
+HLS 验证使用中性生成视频与 mock feed，没有调用真实 App Group/native messaging，
+也没有执行 iPhone 上的 ScreenCaptureKit 或 ASR。两层 JS 消息逻辑由 Node 故障测试覆盖；
+真机后台采集是否继续仍以 source 音频/识别/发布计数为依据。

@@ -85,34 +85,42 @@ public struct LiveTranscriber: Sendable {
     ) async throws {
         let transcriber = makeTranscriber(locale: locale)
         let analyzer = SpeechAnalyzer(modules: [transcriber])
+        let (inputs, inputContinuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
         guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
+            inputContinuation.finish()
+            await analyzer.cancelAndFinishNow()
             throw LiveCaptionsError.noAudioFormat
         }
-        try await analyzer.prepareToAnalyze(in: format)
 
-        let (inputs, inputContinuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
-        let results = Task {
-            for try await result in transcriber.results {
-                let text = String(result.text.characters)
-                continuation.yield(result.isFinal ? .final(text) : .volatile(text))
+        try await runStreamingSession(
+            start: {
+                try await analyzer.prepareToAnalyze(in: format)
+                try Task.checkCancellation()
+                try await analyzer.start(inputSequence: inputs)
+            },
+            input: {
+                defer { inputContinuation.finish() }
+                let converter = BufferConverter(target: format)
+                for await chunk in audio {
+                    try Task.checkCancellation()
+                    if let converted = try converter.convert(chunk.buffer) {
+                        inputContinuation.yield(AnalyzerInput(buffer: converted))
+                    }
+                }
+                try Task.checkCancellation()
+                inputContinuation.finish()
+                try await analyzer.finalizeAndFinishThroughEndOfInput()
+            },
+            results: {
+                for try await result in transcriber.results {
+                    let text = String(result.text.characters)
+                    continuation.yield(result.isFinal ? .final(text) : .volatile(text))
+                }
+            },
+            cancel: {
+                inputContinuation.finish()
+                await analyzer.cancelAndFinishNow()
             }
-        }
-        try await analyzer.start(inputSequence: inputs)
-
-        let converter = BufferConverter(target: format)
-        for await chunk in audio {
-            if let converted = try converter.convert(chunk.buffer) {
-                inputContinuation.yield(AnalyzerInput(buffer: converted))
-            }
-        }
-        inputContinuation.finish()
-
-        if Task.isCancelled {
-            await analyzer.cancelAndFinishNow()
-            results.cancel()
-            throw CancellationError()
-        }
-        try await analyzer.finalizeAndFinishThroughEndOfInput()
-        try await results.value
+        )
     }
 }
