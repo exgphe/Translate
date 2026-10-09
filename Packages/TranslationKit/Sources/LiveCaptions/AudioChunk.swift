@@ -16,7 +16,7 @@ public struct AudioChunk: @unchecked Sendable {
         guard sampleBuffer.isValid,
               let description = sampleBuffer.formatDescription,
               description.mediaType == .audio else { return nil }
-        let format = AVAudioFormat(cmAudioFormatDescription: description)
+        guard let format = AVAudioFormat(formatDescription: description) else { return nil }
         let frames = AVAudioFrameCount(sampleBuffer.numSamples)
         guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return nil }
         buffer.frameLength = frames

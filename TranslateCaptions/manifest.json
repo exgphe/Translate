@@ -17,6 +17,16 @@
         "type": "module"
     },
 
+    "action": {
+        "default_title": "Translate Live Captions",
+        "default_popup": "popup.html",
+        "default_icon": {
+            "48": "icon-48.png",
+            "96": "icon-96.png",
+            "128": "icon-128.png"
+        }
+    },
+
     "content_scripts": [{
         "js": [ "content.js" ],
         "css": [ "captions.css" ],
@@ -25,5 +35,5 @@
         "run_at": "document_idle"
     }],
 
-    "permissions": [ "nativeMessaging" ]
+    "permissions": [ "nativeMessaging", "storage", "activeTab" ]
 }

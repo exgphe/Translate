@@ -4,7 +4,7 @@
 //
 //   swiftc -O Tools/ContentScriptTests.swift -o /tmp/content-tests && /tmp/content-tests TranslateCaptions/content.js /tmp/out
 //
-// Prints PASS/FAIL and writes caption-hidden-by-plyr.png and caption-render.png.
+// Prints PASS/FAIL and writes snapshots of hidden, visible, disabled, and reenabled captions.
 import AppKit
 import AVFoundation
 import WebKit
@@ -118,7 +118,8 @@ Task { @MainActor in
         // Mock the extension API and capture the script's internals instead of starting its loop.
         _ = try await run("""
             window.__reply = { active: false };
-            window.browser = { runtime: { sendMessage: async () => window.__reply } };
+            window.__captionRequests = 0;
+            window.browser = { runtime: { sendMessage: async () => { window.__captionRequests += 1; return window.__reply; } } };
             window.__translateCaptionsTestHooks = (hooks) => { window.__hooks = hooks; };
             window.__seek = async (time) => {
                 const v = document.getElementById('main');
@@ -241,7 +242,40 @@ Task { @MainActor in
         let visiblePixels = try await snapshot(named: "caption-render.png")
         check("bundled CSS makes native caption glyphs visible", visiblePixels > hiddenPixels + 100, "hidden: \(hiddenPixels), visible: \(visiblePixels) bright pixels")
 
-        _ = try await run("window.__hooks.show('', 'zh-Hans')")
+        let disabled = try await run("""
+            window.__hooks.setEmbeddingEnabled(false);
+            const v = document.getElementById('main');
+            const t = Array.from(v.textTracks).find(t => t.label === 'Live translation');
+            return [t?.cues?.length ?? 0, t?.mode,
+                v.hasAttribute('data-translate-live-captions'),
+                document.getElementById('player').hasAttribute('data-translate-native-captions'),
+                getComputedStyle(document.getElementById('player-captions')).display];
+            """) as? [Any]
+        check("disabling embedding clears its cue and disables its track", disabled?[0] as? Int == 0 && disabled?[1] as? String == "disabled", disabled ?? "nil")
+        check("disabling embedding releases caption attributes and player styling", disabled?[2] as? Bool == false && disabled?[3] as? Bool == false && disabled?[4] as? String == "block", disabled ?? "nil")
+        try await Task.sleep(for: .milliseconds(800))
+        let disabledPixels = try await snapshot(named: "caption-embedding-off.png")
+        check("disabling embedding removes actual native caption glyphs", disabledPixels < 20 && visiblePixels > disabledPixels + 100, "enabled: \(visiblePixels), disabled: \(disabledPixels) bright pixels")
+
+        let reenabled = try await run("""
+            const requestsBefore = window.__captionRequests;
+            window.__reply = { active: true, session: 'C', language: 'zh-Hans', text: '重新开启后的新字幕。\\nFresh captions after enabling.' };
+            window.__hooks.setEmbeddingEnabled(true);
+            await window.__hooks.poll();
+            const v = document.getElementById('main');
+            const tracks = Array.from(v.textTracks).filter(t => t.label === 'Live translation');
+            return [window.__captionRequests > requestsBefore, tracks.length, tracks[0]?.mode, tracks[0]?.cues?.[0]?.text,
+                v.hasAttribute('data-translate-live-captions'),
+                document.getElementById('player').hasAttribute('data-translate-native-captions'),
+                getComputedStyle(document.getElementById('player-captions')).display];
+            """) as? [Any]
+        check("reenabling embedding reads fresh text and reuses the native track", reenabled?[0] as? Bool == true && reenabled?[1] as? Int == 1 && reenabled?[2] as? String == "showing" && reenabled?[3] as? String == "重新开启后的新字幕。\nFresh captions after enabling.", reenabled ?? "nil")
+        check("reenabling embedding restores caption attributes and styling", reenabled?[4] as? Bool == true && reenabled?[5] as? Bool == true && reenabled?[6] as? String == "none", reenabled ?? "nil")
+        try await Task.sleep(for: .milliseconds(800))
+        let reenabledPixels = try await snapshot(named: "caption-embedding-on.png")
+        check("reenabling embedding restores actual native caption glyphs", reenabledPixels > disabledPixels + 100, "disabled: \(disabledPixels), reenabled: \(reenabledPixels) bright pixels")
+
+        _ = try await run("window.__hooks.show('', 'zh-Hans'); window.__hooks.stop()")
         check("empty captions restore the player's overlay styling", try await run("return getComputedStyle(document.getElementById('player-captions')).display") as? String == "block")
     } catch {
         print("ERROR", error)

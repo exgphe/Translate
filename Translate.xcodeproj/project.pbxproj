@@ -44,7 +44,7 @@
 		7A0000000000000000000E0D /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			dstPath = "";
-			dstSubfolderSpec = 13;
+			dstSubfolder = PlugIns;
 			files = (
 				7A0000000000000000000E0C /* TranslateCaptions.appex in Embed Foundation Extensions */,
 			);
@@ -223,8 +223,6 @@
 				7A0000000000000000000E06 /* Resources */,
 			);
 			buildRules = (
-			);
-			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
 				7A0000000000000000000E02 /* TranslateCaptions */,
@@ -490,8 +488,8 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/Translate-Info.plist";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Translate recognizes speech on this device to show live captions.";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Translate recognizes speech on this device to show live captions.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=xros*]" = YES;
@@ -546,8 +544,8 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/Translate-Info.plist";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Translate recognizes speech on this device to show live captions.";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Translate recognizes speech on this device to show live captions.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=xros*]" = YES;

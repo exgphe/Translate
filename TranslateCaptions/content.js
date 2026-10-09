@@ -17,21 +17,27 @@
     const TRACK_LABEL = "Live translation";
     const VIDEO_ATTRIBUTE = "data-translate-live-captions";
     const PLAYER_ATTRIBUTE = "data-translate-native-captions";
+    const SETTING_KEY = "captionEmbeddingEnabled";
 
     const state = { video: null, player: null, track: null, cue: null, text: "", session: null };
     let fullscreenVideo = null;
     let latestCaption = null;
     let pollingEnabled = false;
+    let embeddingEnabled = true;
+    let pageSuspended = false;
+    let preferenceRevision = 0;
+    let videoTimer = null;
     let timer = null;
     let pending = null;
     let nextPollAt = 0;
     let failures = 0;
     let lastReportAt = 0;
-    const progress = { status: "idle", requests: 0, responses: 0, timeouts: 0, lastReplyAt: null, mediaEvents: 0, lastMediaEventAt: null, source: null };
+    let lastPageReportAt = -Infinity;
+    const progress = { status: "idle", transportReason: null, bridge: null, requests: 0, responses: 0, timeouts: 0, lastReplyAt: null, mediaEvents: 0, lastMediaEventAt: null, source: null };
 
     function diagnostics() {
         return {
-            ...progress, pending: Boolean(pending), nextPollAt, failures,
+            ...progress, enabled: embeddingEnabled, suspended: pageSuspended, pending: Boolean(pending), nextPollAt, failures,
             reportedAt: Date.now(), replyAge: progress.lastReplyAt === null ? null : (Date.now() - progress.lastReplyAt) / 1000,
             hidden: document.hidden,
             fullscreen: Boolean(fullscreenVideo || state.video?.webkitDisplayingFullscreen || state.video?.webkitPresentationMode === "fullscreen"),
@@ -42,10 +48,34 @@
         };
     }
 
-    function report() {
+    function pageStatus() {
+        const video = pickVideo();
+        const isCurrent = video && video === state.video;
+        return {
+            available: true, hasVideo: Boolean(video), enabled: embeddingEnabled,
+            status: embeddingEnabled ? progress.status : "disabled",
+            hasSourceText: Boolean(embeddingEnabled && latestCaption?.text && Date.now() < latestCaption.expiresAt),
+            hasCaption: Boolean(embeddingEnabled && isCurrent && state.text && state.track?.mode === "showing"
+                && Array.from(state.track.activeCues || []).includes(state.cue)),
+            playingVideo: Boolean(video && !video.paused && !video.ended),
+            fullscreen: Boolean(video && (video === fullscreenVideo || video.webkitDisplayingFullscreen || video.webkitPresentationMode === "fullscreen")),
+            trackMode: isCurrent ? state.track?.mode ?? null : null,
+            activeCues: isCurrent ? state.track?.activeCues?.length ?? 0 : 0,
+            reportedAt: Date.now(),
+        };
+    }
+
+    function report(forcePageReport = false) {
         // Metadata only: a remote Safari inspector can diagnose stalls without logging text.
         document.documentElement?.setAttribute("data-translate-caption-status", JSON.stringify(diagnostics()));
         lastReportAt = Date.now();
+        // One metadata report per second lets the popup find videos inside frames without
+        // extra browsing permissions. No caption text or page URL is sent.
+        if (browser.runtime.onMessage?.addListener && (forcePageReport || Date.now() - lastPageReportAt >= 1000)) {
+            lastPageReportAt = Date.now();
+            try { return Promise.resolve(browser.runtime.sendMessage({ type: "caption-page-report", page: pageStatus() })).catch(() => {}); }
+            catch (_) { /* the extension can reconnect on the next report */ }
+        }
     }
 
     function area(video) {
@@ -108,6 +138,7 @@
 
     /// Puts `text` on the main video. Empty text removes the caption.
     function show(text, language) {
+        if (!embeddingEnabled || pageSuspended) { detach(); return; }
         if (!text) {
             clearCue();
             nativeRendering(false);
@@ -145,10 +176,12 @@
         try { show(latestCaption.text, latestCaption.language); } catch (_) { /* next poll retries */ }
     }
 
-    function failedRequest(timedOut) {
+    function failedRequest(timedOut, reason, nativeBridge) {
         failures += 1;
         if (timedOut) progress.timeouts += 1;
         progress.status = timedOut ? "timeout" : "transport-error";
+        progress.transportReason = reason || (timedOut ? "page-message-timeout" : "page-message-failed");
+        if (nativeBridge) progress.bridge = nativeBridge;
         refresh();
         report();
         return Math.min(30_000, 1000 * 2 ** Math.min(failures - 1, 5));
@@ -157,11 +190,13 @@
     function accept(reply) {
         // A bridge failure is different from a feed that explicitly stopped. Keep the last
         // reply only for a bounded grace period, while retrying with backoff.
-        if (!reply || typeof reply.active !== "boolean" || reply.status === "transport-error") return failedRequest(false);
+        if (!reply || typeof reply.active !== "boolean" || reply.status === "transport-error") return failedRequest(false, reply?.reason, reply?.bridge);
         failures = 0;
         progress.responses += 1;
         progress.lastReplyAt = Date.now();
         progress.status = reply.status || (reply.active ? "active" : "inactive");
+        progress.transportReason = null;
+        progress.bridge = reply.bridge || null;
         progress.source = reply.diagnostics || null;
         if (!reply.active) {
             latestCaption = null;
@@ -183,10 +218,11 @@
     // Each request has a deadline independent of the Promise returned by Safari. Media
     // events also check it, so a throttled DOM timeout cannot hold the loop indefinitely.
     function poll() {
+        if (!embeddingEnabled || pageSuspended) return Promise.resolve(IDLE_POLL_MS);
         if (pending) return pending.promise;
         let resolve;
         const promise = new Promise((done) => { resolve = done; });
-        const request = { promise, deadline: Date.now() + REQUEST_TIMEOUT_MS, timeout: null, expire: null };
+        const request = { promise, deadline: Date.now() + REQUEST_TIMEOUT_MS, timeout: null, expire: null, cancel: null };
         pending = request;
         progress.requests += 1;
         const finish = (reply, timedOut = false, transportError = false) => {
@@ -201,6 +237,12 @@
             if (pollingEnabled) schedule();
         };
         request.expire = () => finish(null, true);
+        request.cancel = () => {
+            if (pending !== request) return;
+            clearTimeout(request.timeout);
+            pending = null;
+            resolve(IDLE_POLL_MS);
+        };
         request.timeout = setTimeout(request.expire, REQUEST_TIMEOUT_MS);
         try {
             Promise.resolve(browser.runtime.sendMessage({ type: "captions" })).then(
@@ -229,13 +271,34 @@
         if (Date.now() - lastReportAt >= 1000) report();
     }
 
-    function start() { pollingEnabled = true; nextPollAt = 0; wake(); }
+    function start() {
+        if (!embeddingEnabled || pageSuspended) return;
+        pollingEnabled = true; nextPollAt = 0; wake();
+    }
     function stop() {
         pollingEnabled = false;
         clearTimeout(timer);
-        if (pending) { pending.expire(); }
+        clearTimeout(videoTimer);
+        if (pending) pending.cancel();
         latestCaption = null;
         detach();
+        state.session = null;
+    }
+
+    function setEmbeddingEnabled(enabled) {
+        const changed = embeddingEnabled !== enabled;
+        embeddingEnabled = enabled;
+        if (!enabled) {
+            stop();
+            progress.status = "disabled";
+            progress.transportReason = null;
+            progress.source = null;
+        } else if (changed) {
+            failures = 0;
+            progress.status = "idle";
+        }
+        if (enabled && !pollingEnabled) waitForVideo();
+        report(true);
     }
 
     document.addEventListener("webkitbeginfullscreen", (event) => {
@@ -261,18 +324,62 @@
             wake();
         }
     }, true);
-    window.addEventListener("pageshow", () => wake(true));
+    window.addEventListener("pagehide", () => {
+        preferenceRevision += 1;
+        pageSuspended = true;
+        stop();
+        fullscreenVideo = null;
+        progress.status = "suspended";
+        report(true);
+    });
+    window.addEventListener("pageshow", () => {
+        preferenceRevision += 1;
+        pageSuspended = false;
+        failures = 0;
+        nextPollAt = 0;
+        progress.transportReason = null;
+        progress.status = embeddingEnabled ? "idle" : "disabled";
+        void initialize();
+    });
     window.addEventListener("focus", () => wake(true));
 
     // Frames without a video stay quiet until one appears.
     function waitForVideo() {
+        clearTimeout(videoTimer);
+        if (!embeddingEnabled || pageSuspended) return;
         if (document.querySelector("video")) start();
-        else setTimeout(waitForVideo, NO_VIDEO_RECHECK_MS);
+        else videoTimer = setTimeout(waitForVideo, NO_VIDEO_RECHECK_MS);
     }
 
+    async function initialize() {
+        const revision = preferenceRevision;
+        try {
+            const settings = await browser.storage?.local.get(SETTING_KEY);
+            if (revision === preferenceRevision) setEmbeddingEnabled(settings?.[SETTING_KEY] !== false);
+        } catch (_) { report(true); }
+        if (revision === preferenceRevision && embeddingEnabled && !pageSuspended && !pollingEnabled) waitForVideo();
+    }
+
+    browser.storage?.onChanged.addListener((changes, area) => {
+        if (area !== "local" || !changes[SETTING_KEY]) return;
+        preferenceRevision += 1;
+        setEmbeddingEnabled(changes[SETTING_KEY].newValue !== false);
+    });
+    browser.runtime.onMessage?.addListener((message) => {
+        if (message?.type === "caption-embedding-changed" && typeof message.enabled === "boolean") {
+            preferenceRevision += 1;
+            setEmbeddingEnabled(message.enabled);
+            return Promise.resolve({ enabled: embeddingEnabled });
+        }
+        if (message?.type === "caption-page-status-request") {
+            return Promise.resolve(report(true)).then(pageStatus);
+        }
+        return undefined;
+    });
+
     if (globalThis.__translateCaptionsTestHooks) {
-        globalThis.__translateCaptionsTestHooks({ show, pickVideo, poll, state, start, stop, wake, diagnostics });
+        globalThis.__translateCaptionsTestHooks({ show, pickVideo, poll, state, start, stop, wake, diagnostics, initialize, setEmbeddingEnabled, pageStatus });
     } else {
-        waitForVideo();
+        void initialize();
     }
 })();

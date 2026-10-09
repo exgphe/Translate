@@ -9,10 +9,13 @@ final class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
         let item = context.inputItems.first as? NSExtensionItem
         let message = item?.userInfo?[SFExtensionMessageKey] as? [String: Any]
 
-        let reply: [String: Any]
+        var reply: [String: Any]
         switch message?["type"] as? String {
         case "captions":
             reply = CaptionFeedReply.make(from: CaptionFeedStore.shared()?.read())
+            if let configuration = CaptionExtensionConfigurationStore.shared()?.read() {
+                reply["configuration"] = configuration.reply
+            }
         default:
             reply = ["error": "Unknown message"]
         }

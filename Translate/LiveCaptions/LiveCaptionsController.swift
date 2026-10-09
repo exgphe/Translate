@@ -29,7 +29,7 @@ final class LiveCaptionsController {
     }
 
     /// Who translates the captions. Chosen here, independently of the main window's engine.
-    enum TranslatorChoice: Hashable, Identifiable {
+    nonisolated enum TranslatorChoice: Hashable, Identifiable, Sendable {
         /// Apple's Translation framework (macOS): on device, the fastest option.
         case appleTranslation
         /// One of the app's engines: Apple Intelligence, Anthropic, an OpenAI-compatible service.
@@ -96,15 +96,16 @@ final class LiveCaptionsController {
     private(set) var appleTranslationState: AppleTranslationState = .unknown
     private(set) var activeTranslatorName: String?
     private(set) var lastTranslationError: String?
+    private(set) var extensionStartRequest: UUID?
 
     var spokenLocaleIdentifier: String {
-        didSet { defaults.set(spokenLocaleIdentifier, forKey: Key.spokenLocale) }
+        didSet { defaults.set(spokenLocaleIdentifier, forKey: Key.spokenLocale); publishExtensionConfiguration() }
     }
     var targetLanguage: LanguageCode {
-        didSet { defaults.set(targetLanguage.identifier, forKey: Key.target) }
+        didSet { defaults.set(targetLanguage.identifier, forKey: Key.target); publishExtensionConfiguration() }
     }
     var translator: TranslatorChoice {
-        didSet { defaults.set(translator.storageValue, forKey: Key.translator) }
+        didSet { defaults.set(translator.storageValue, forKey: Key.translator); publishExtensionConfiguration() }
     }
     var showsOriginal: Bool {
         didSet { defaults.set(showsOriginal, forKey: Key.showsOriginal) }
@@ -127,6 +128,7 @@ final class LiveCaptionsController {
     /// Captions shared with the Safari extension, which shows them on the page's video. Nil when
     /// the App Group entitlement is missing (for example in an unsigned build).
     @ObservationIgnored private let feedStore = CaptionFeedStore.shared()
+    @ObservationIgnored private let extensionConfigurationStore = CaptionExtensionConfigurationStore.shared()
     @ObservationIgnored private var feedSessionID = UUID()
     @ObservationIgnored private var feedPublishTask: Task<Void, Never>?
     @ObservationIgnored private var feedHeartbeat: Task<Void, Never>?
@@ -149,6 +151,26 @@ final class LiveCaptionsController {
         translator = Self.storedTranslator(defaults: defaults, settings: settings)
         showsOriginal = defaults.object(forKey: Key.showsOriginal) as? Bool ?? true
         textSize = defaults.object(forKey: Key.textSize) as? Double ?? 28
+        publishExtensionConfiguration()
+    }
+
+    private func publishExtensionConfiguration() {
+        try? extensionConfigurationStore?.write(.init(spokenLanguage: spokenLanguage.identifier,
+            targetLanguage: targetLanguage.identifier, translationEnabled: translationNeeded))
+    }
+
+    /// The visible control panel consumes this once the app is active, so the system picker
+    /// is never presented by the background extension or before the panel exists.
+    func openFromExtension(start: Bool) {
+        extensionStartRequest = start && !phase.isActive ? UUID() : nil
+    }
+
+    func startFromExtensionIfRequested() {
+        guard extensionStartRequest != nil else { return }
+        extensionStartRequest = nil
+        // Like the panel's Start button, capture setup survives the app becoming inactive
+        // while the system sharing picker is presented.
+        Task { await start() }
     }
 
     /// Every option, each engine listed on its own. The Translation framework is unavailable
@@ -268,7 +290,7 @@ final class LiveCaptionsController {
         phase = .preparing("Preparing speech recognition…")
         do {
             let transcriber = try await LiveTranscriber.prepare(locale: Locale(identifier: spokenLocaleIdentifier)) { [weak self] fraction in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     guard let self, session == self.feedSessionID, case .preparing = self.phase else { return }
                     self.phase = .preparing("Downloading the speech model… \(Int(fraction * 100))%")
                 }
@@ -276,7 +298,7 @@ final class LiveCaptionsController {
             guard session == feedSessionID, phase.isActive else { return }
             let capture = SystemAudioCapture()
             let audio = try await capture.start(source: source) { [weak self] error in
-                Task { @MainActor in self?.captureEnded(error, session: session) }
+                Task { @MainActor [weak self] in self?.captureEnded(error, session: session) }
             }
             guard session == feedSessionID, phase.isActive else { await capture.stop(); return }
             self.capture = capture

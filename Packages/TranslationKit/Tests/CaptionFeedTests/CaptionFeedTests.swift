@@ -5,6 +5,33 @@ import Testing
 struct CaptionFeedTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
+    @Test func popupRoutesKeepSettingsSeparateFromStartingCapture() throws {
+        #expect(CaptionAppRoute(url: try #require(URL(string: "translate-live-captions://captions/start"))) == .start)
+        #expect(CaptionAppRoute(url: try #require(URL(string: "translate-live-captions://captions/settings"))) == .settings)
+        for value in ["https://captions/start", "translate-live-captions://other/start",
+                      "translate-live-captions://captions/stop", "translate-live-captions://captions/start?target=en",
+                      "translate-live-captions://captions/settings#start", "translate-live-captions://user@captions/start"] {
+            #expect(CaptionAppRoute(url: try #require(URL(string: value))) == nil)
+        }
+    }
+
+    @Test func extensionConfigurationPersistsWithoutAnActiveCaptionFeed() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "caption-settings-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = CaptionExtensionConfigurationStore(url: url)
+        #expect(store.read() == nil)
+        var configuration = CaptionExtensionConfiguration(spokenLanguage: "en", targetLanguage: "zh-Hans", translationEnabled: true)
+        try store.write(configuration)
+        #expect(store.read() == configuration)
+        configuration.translationEnabled = false
+        try store.write(configuration)
+        #expect(store.read()?.translationEnabled == false)
+        #expect(Set(configuration.reply.keys) == ["spokenLanguage", "targetLanguage", "translationEnabled"])
+        #expect(PropertyListSerialization.propertyList(configuration.reply, isValidFor: .binary))
+        try Data("invalid".utf8).write(to: url)
+        #expect(store.read() == nil)
+    }
+
     private func snapshot(lines: [CaptionFeedSnapshot.Line] = [], volatile: String = "", volatileTranslation: String? = nil, showsOriginal: Bool = true, updatedAgo: TimeInterval = 1, active: Bool = true) -> CaptionFeedSnapshot {
         CaptionFeedSnapshot(sessionID: UUID(uuidString: "11111111-2222-3333-4444-555555555555")!, isActive: active, updatedAt: now.addingTimeInterval(-updatedAgo), lines: lines, volatileOriginal: volatile, volatileTranslation: volatileTranslation, showsOriginal: showsOriginal, language: "zh-Hans")
     }

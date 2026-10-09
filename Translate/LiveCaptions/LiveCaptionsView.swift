@@ -11,6 +11,7 @@ import Translation
 struct LiveCaptionsView: View {
     @Environment(LiveCaptionsController.self) private var controller
     @Environment(EngineRegistry.self) private var registry
+    @Environment(\.scenePhase) private var scenePhase
     #if os(visionOS)
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
@@ -133,10 +134,21 @@ struct LiveCaptionsView: View {
             }
         }
         .formStyle(.grouped)
-        .task {
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
             await registry.refresh()
             await controller.loadLocales()
             await controller.refreshAppleTranslationState()
+            guard !Task.isCancelled, scenePhase == .active else { return }
+            controller.startFromExtensionIfRequested()
+        }
+        .onChange(of: controller.extensionStartRequest) { _, request in
+            guard request != nil, scenePhase == .active else { return }
+            Task {
+                await registry.refresh()
+                guard scenePhase == .active else { return }
+                controller.startFromExtensionIfRequested()
+            }
         }
         .onChange(of: controller.spokenLocaleIdentifier) { Task { await controller.refreshAppleTranslationState() } }
         .onChange(of: controller.targetLanguage) { Task { await controller.refreshAppleTranslationState() } }

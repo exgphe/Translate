@@ -1,3 +1,4 @@
+import CaptionFeed
 import SwiftData
 import SwiftUI
 import TranslationCore
@@ -13,6 +14,9 @@ struct ContentView: View {
     @Environment(AppModel.self) private var model
     @Environment(AppSettings.self) private var settings
     @Environment(\.scenePhase) private var scenePhase
+    #if os(macOS) || os(visionOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
     #if !os(macOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var photoItem: PhotosPickerItem?
@@ -76,6 +80,18 @@ struct ContentView: View {
             .environment(model.registry)
         }
         #endif
+        .onOpenURL { url in
+            guard let route = CaptionAppRoute(url: url) else { return }
+            model.liveCaptions.openFromExtension(start: route == .start)
+            #if os(iOS)
+            workspace.isShowingSettings = false
+            workspace.isShowingLiveCaptions = true
+            #elseif os(macOS)
+            openWindow(id: "live-captions")
+            #elseif os(visionOS)
+            openWindow(id: "live-captions", value: "main")
+            #endif
+        }
         .task(id: "\(scenePhase)-\(settings.autoPasteEnabled)") {
             guard needsClipboardWatch, shouldWatchClipboard else { return }
             while !Task.isCancelled {

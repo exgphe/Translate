@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Translate · Live Captions</title>
+    <link rel="stylesheet" href="popup.css">
+    <script src="popup-i18n.js" defer></script>
+    <script src="popup.js" defer></script>
+</head>
+<body>
+    <main>
+        <header class="header">
+            <img class="app-icon" src="icon-128.png" width="44" height="44" alt="">
+            <div class="brand">
+                <h1>Translate</h1>
+                <p data-i18n="subtitle">Live captions</p>
+            </div>
+            <button id="refresh" class="icon-button" type="button" aria-label="Refresh status" title="Refresh status">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17"/></svg>
+            </button>
+        </header>
+
+        <section class="launch-card" aria-labelledby="launch-heading">
+            <h2 class="section-label" id="launch-heading" data-i18n="languages">Caption languages</h2>
+            <dl class="language-details">
+                <div class="detail-row">
+                    <dt data-i18n="spokenLanguage">Spoken language</dt>
+                    <dd id="spoken-language">—</dd>
+                </div>
+                <div class="detail-row">
+                    <dt data-i18n="targetLanguage">Translate into</dt>
+                    <dd id="target-language">—</dd>
+                </div>
+            </dl>
+            <a id="start-captions" class="app-link primary-link" href="translate-live-captions://captions/start" data-i18n="startCaptions">Start live captions</a>
+            <a id="open-settings" class="app-link settings-link" href="translate-live-captions://captions/settings" data-i18n="openSettings">Open live caption settings</a>
+            <p id="launch-hint" class="launch-hint" data-i18n="launchHint">Opens Translate to choose audio to share. Return to Safari after sharing starts.</p>
+        </section>
+
+        <section class="setting-card" aria-labelledby="embedding-label">
+            <label class="setting-row" for="embedding-enabled">
+                <span class="setting-copy">
+                    <span class="setting-title" id="embedding-label" data-i18n="embedding">Embed live captions</span>
+                    <span class="setting-description" id="embedding-description" data-i18n="embeddingDescription">Show captions in Safari video players.</span>
+                </span>
+                <span class="switch">
+                    <input id="embedding-enabled" type="checkbox" role="switch" aria-labelledby="embedding-label" aria-describedby="embedding-description" disabled>
+                    <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+                </span>
+            </label>
+        </section>
+
+        <section class="status-card" aria-labelledby="status-heading" aria-live="polite" aria-atomic="true">
+            <h2 class="section-label" id="status-heading" data-i18n="currentStatus">Current status</h2>
+            <div class="status-heading">
+                <span id="overall-indicator" class="status-dot" data-tone="neutral" aria-hidden="true"></span>
+                <p id="overall-status" class="status-title">Checking status…</p>
+            </div>
+            <dl class="status-details">
+                <div class="detail-row">
+                    <dt data-i18n="source">Translate App</dt>
+                    <dd id="source-status">—</dd>
+                </div>
+                <div class="detail-row">
+                    <dt data-i18n="page">Current page</dt>
+                    <dd id="page-status">—</dd>
+                </div>
+            </dl>
+            <p class="status-hint" id="status-hint">Start live captions in Translate, then play a video in Safari.</p>
+        </section>
+
+        <p id="notice" class="notice" role="status" hidden></p>
+        <p class="footer" data-i18n="footer">In full screen, turn on subtitles in the player’s subtitle menu.</p>
+    </main>
+</body>
+</html>
