@@ -1,6 +1,9 @@
 import SwiftUI
 import TranslationCore
 import TranslationProviders
+#if os(iOS)
+import UIKit
+#endif
 
 struct SettingsView: View {
     #if !os(macOS)
@@ -34,6 +37,18 @@ struct SettingsView: View {
                 } label: {
                     Label("Privacy", systemImage: "hand.raised")
                 }
+                #if os(iOS)
+                Section("System translation") {
+                    Text("Use Translate in other apps by selecting text and choosing Translate. Choose this app in Settings › Apps › Default Apps › Translation.")
+                        .font(.callout)
+                    Text("The system sheet uses your default language, engine, and on-device privacy setting. Open this app once after updating to share your existing settings and API keys.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Open System Settings") {
+                        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                        UIApplication.shared.open(url)
+                    }
+                }
+                #endif
             }
             .navigationTitle("Settings")
             .toolbar {
@@ -278,6 +293,8 @@ struct AvailabilityLabel: View {
 
 struct GeneralSettingsView: View {
     @Environment(AppSettings.self) private var settings
+    @Environment(AppModel.self) private var model
+    @State private var isConfirmingClearHistory = false
 
     var body: some View {
         @Bindable var settings = settings
@@ -304,6 +321,12 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("History") {
+                Toggle("Save translations to history", isOn: $settings.historyEnabled)
+                Button("Clear All History…", role: .destructive) {
+                    isConfirmingClearHistory = true
+                }
+            }
             #if os(macOS)
             Section("Keyboard") {
                 KeyboardHintRow(action: "Translate", shortcut: "⌘↩")
@@ -317,6 +340,12 @@ struct GeneralSettingsView: View {
             #endif
         }
         .formStyle(.grouped)
+        .confirmationDialog("Clear all history?", isPresented: $isConfirmingClearHistory, titleVisibility: .visible) {
+            Button("Clear All History", role: .destructive) { model.deleteAllHistory() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("All saved translations will be permanently deleted.")
+        }
     }
 }
 
@@ -345,8 +374,6 @@ struct KeyboardHintRow: View {
 
 struct PrivacySettingsView: View {
     @Environment(AppSettings.self) private var settings
-    @Environment(AppModel.self) private var model
-    @State private var isConfirmingClear = false
 
     var body: some View {
         @Bindable var settings = settings
@@ -362,22 +389,12 @@ struct PrivacySettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Section("History") {
-                Toggle("Save translations to history", isOn: $settings.historyEnabled)
-                Text("History is stored locally in the app's container and is never used as context for new requests.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button("Delete All History…", role: .destructive) { isConfirmingClear = true }
-            }
             Section("Keys") {
-                Text("API keys are stored in the Keychain for this app only and are never written to logs, exports, or history.")
+                Text("API keys are stored in the Keychain and are never written to logs, exports, or history. On iOS, keys are shared with this app's system translation service. The Safari captions extension cannot access them.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-        .confirmationDialog("Delete all history?", isPresented: $isConfirmingClear) {
-            Button("Delete All", role: .destructive) { model.deleteAllHistory() }
-        }
     }
 }

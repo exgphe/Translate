@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>EXAppExtensionAttributes</key>
+    <dict>
+        <key>EXExtensionPointIdentifier</key>
+        <string>com.apple.public.translation-ui-provider</string>
+    </dict>
+    <key>com.apple.developer.translation-ui-provider.network-access</key>
+    <true/>
+    <key>CaptionFeedAppGroup</key>
+    <string>$(CAPTION_APP_GROUP)</string>
+    <key>TranslationSharedKeychainAccessGroup</key>
+    <string>$(AppIdentifierPrefix)wang.xiaolin.Translate.translation-service</string>
+</dict>
+</plist>

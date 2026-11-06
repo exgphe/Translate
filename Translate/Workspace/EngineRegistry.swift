@@ -96,7 +96,7 @@ final class EngineRegistry {
 
     // MARK: - Availability
 
-    func refresh() async {
+    func refresh(selectDefault: Bool = true) async {
         var updated = Self.knownEngines(settings: settings)
         for index in updated.indices {
             guard let provider = makeProvider(id: updated[index].id) else { continue }
@@ -105,7 +105,7 @@ final class EngineRegistry {
             updated[index].name = provider.displayName
         }
         engines = updated
-        if settings.selectedEngineID.isEmpty, let first = updated.first(where: { $0.availability.isAvailable }) {
+        if selectDefault, settings.selectedEngineID.isEmpty, let first = updated.first(where: { $0.availability.isAvailable }) {
             settings.selectedEngineID = first.id
         }
     }

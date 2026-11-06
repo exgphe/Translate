@@ -69,6 +69,9 @@ struct LanguageBar: View {
     var body: some View {
         @Bindable var workspace = workspace
         HStack(spacing: isCompact ? 4 : 12) {
+            #if os(macOS)
+            Spacer(minLength: 0)
+            #endif
             languageMenu(title: detectedLabel, accessibilityID: "sourceLanguage") {
                 Picker("Source", selection: $workspace.sourceLanguage) {
                     Text(detectedLabel).tag(SourceLanguage.automatic)
@@ -97,8 +100,15 @@ struct LanguageBar: View {
                 }
             }
 
+            #if os(macOS)
+            Spacer(minLength: 0)
+            #else
             if !isCompact { Spacer() }
+            #endif
         }
+        #if os(macOS)
+        .frame(maxWidth: .infinity)
+        #endif
     }
 
     /// Regular widths use the native picker; compact widths wrap it in a menu with a
@@ -149,6 +159,15 @@ struct SourcePane: View {
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
+                #if os(macOS)
+                Button("Clear source and translation", systemImage: "xmark") { workspace.clear() }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Clear source and translation (⌘K)")
+                    .disabled(workspace.sourceText.isEmpty && workspace.translatedText.isEmpty && workspace.attachment == nil)
+                    .accessibilityIdentifier("clearWorkspaceButton")
+                #endif
             }
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $workspace.sourceText)
@@ -183,6 +202,16 @@ struct SourcePane: View {
                 Divider()
                 ImageAttachmentView(attachment: attachment) { workspace.removeImage() }
             }
+            #if os(macOS)
+            HStack(spacing: 12) {
+                PasteActionButton()
+                Button("Import Image", systemImage: "photo.badge.plus") { workspace.isImportingImage = true }
+                    .help("Import an image and recognize its text on device (⇧⌘I)")
+                    .accessibilityIdentifier("importImageButton")
+                Spacer()
+            }
+            .paneActionStyle()
+            #endif
         }
         .frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
         .overlay {
@@ -224,8 +253,10 @@ struct ImageAttachmentView: View {
                                 .foregroundStyle(.orange)
                         }
                     }
+                    #if !os(macOS)
                     Text("Only the recognized text is sent to the engine. The image stays on this device.")
                         .foregroundStyle(.secondary)
+                    #endif
                 case .failed(let message, let suggestion):
                     Label(message, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
@@ -303,6 +334,19 @@ struct TranslationPane: View {
                 }
                 .padding(13)
             }
+            #if os(macOS)
+            HStack(spacing: 12) {
+                CopyActionButton()
+                Spacer(minLength: 12)
+                if !workspace.translatedText.isEmpty {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 12) { AssistButtons() }
+                        HStack(spacing: 12) { AssistButtons() }.labelStyle(.iconOnly)
+                    }
+                }
+            }
+            .paneActionStyle()
+            #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -419,9 +463,8 @@ struct ContextPopover: View {
 
 // MARK: - Action bar
 //
-// One grouping on every platform: engine | clipboard in and out | ask the AI | primary action.
-// macOS and iPad show it as a bottom bar, iPhone splits it over two rows, and visionOS floats it
-// in a bottom ornament.
+// Mac keeps editing actions in their panes, iPad groups them in the bottom bar,
+// iPhone splits the bar over two rows, and visionOS uses a bottom ornament.
 
 /// Engine menu with a one-line note on where the text goes.
 struct EngineSummary: View {
@@ -429,6 +472,9 @@ struct EngineSummary: View {
     var captionFont: Font = .caption
 
     var body: some View {
+        #if os(macOS)
+        EnginePicker()
+        #else
         VStack(alignment: .leading, spacing: 2) {
             EnginePicker()
             if let engine = registry.selectedEngine {
@@ -439,11 +485,19 @@ struct EngineSummary: View {
                     .fixedSize()
             }
         }
+        #endif
     }
 }
 
 /// Paste (system button, so iOS and visionOS never show the paste prompt) and Copy.
 struct ClipboardButtons: View {
+    var body: some View {
+        PasteActionButton()
+        CopyActionButton()
+    }
+}
+
+struct PasteActionButton: View {
     @Environment(TranslationWorkspace.self) private var workspace
 
     var body: some View {
@@ -462,7 +516,13 @@ struct ClipboardButtons: View {
         #endif
         .help("Paste and translate (⇧⌘V)")
         .accessibilityIdentifier("pasteButton")
+    }
+}
 
+struct CopyActionButton: View {
+    @Environment(TranslationWorkspace.self) private var workspace
+
+    var body: some View {
         Button("Copy", systemImage: "doc.on.doc") { workspace.copyTranslation() }
             .disabled(workspace.translatedText.isEmpty)
             .help("Copy translation (⇧⌘C)")
@@ -565,6 +625,7 @@ struct ExecutionBar: View {
         } else {
             HStack(spacing: 8) {
                 EngineSummary()
+                #if !os(macOS)
                 GroupSeparator()
                 Group {
                     ClipboardButtons()
@@ -572,6 +633,7 @@ struct ExecutionBar: View {
                     AssistButtons()
                 }
                 .labelStyle(.titleAndIcon)
+                #endif
                 Spacer(minLength: 12)
                 PrimaryActionButton()
             }
@@ -655,6 +717,20 @@ struct EnginePicker: View {
 }
 
 // MARK: - Shared
+
+#if os(macOS)
+private extension View {
+    func paneActionStyle() -> some View {
+        self
+            .labelStyle(.titleAndIcon)
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .frame(minHeight: 28)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+    }
+}
+#endif
 
 struct PaneHeader<Trailing: View>: View {
     let title: LocalizedStringKey

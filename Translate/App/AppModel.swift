@@ -13,8 +13,12 @@ final class AppModel {
     let liveCaptions: LiveCaptionsController
 
     init() {
-        let settings = AppSettings()
+        let settings = AppSettings(sharedTranslationDefaults: AppSettings.translationServiceDefaults)
         let registry = EngineRegistry(settings: settings)
+        // Reading existing app credentials migrates them into the translation service's
+        // dedicated Keychain group, without giving the Safari extension access.
+        _ = registry.apiKey(for: EngineRegistry.KeychainAccount.anthropic)
+        _ = registry.apiKey(for: EngineRegistry.KeychainAccount.openAICompatible)
         let container: ModelContainer
         do {
             container = try ModelContainer(for: HistoryEntry.self)

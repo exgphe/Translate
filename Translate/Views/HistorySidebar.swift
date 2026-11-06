@@ -23,6 +23,11 @@ struct HistorySidebar: View {
                         HistoryRow(entry: entry).tag(entry.id)
                     }
                 }
+                    #if os(macOS)
+                    .swipeActions(edge: .trailing) {
+                        Button("Delete", systemImage: "trash", role: .destructive) { delete(entry) }
+                    }
+                    #endif
                     .contextMenu {
                         Button("Copy Translation") { Pasteboard.copy(entry.translatedText) }
                         Button("Delete", role: .destructive) { delete(entry) }
@@ -43,6 +48,7 @@ struct HistorySidebar: View {
                 }
             }
         }
+        #if !os(macOS)
         .toolbar {
             ToolbarItem {
                 Button("Clear History", systemImage: "trash") { isConfirmingClear = true }
@@ -57,6 +63,7 @@ struct HistorySidebar: View {
         } message: {
             Text("This removes every saved translation from this device. This cannot be undone.")
         }
+        #endif
     }
 
     private func delete(_ entry: HistoryEntry) {

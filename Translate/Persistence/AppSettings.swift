@@ -7,6 +7,18 @@ import TranslationCore
 @Observable
 final class AppSettings {
     private let defaults: UserDefaults
+    private let sharedTranslationDefaults: UserDefaults?
+
+    /// Only translation preferences are shared. Clipboard state and history stay in the app.
+    static var translationServiceDefaults: UserDefaults? {
+        #if os(iOS)
+        guard let group = Bundle.main.object(forInfoDictionaryKey: "CaptionFeedAppGroup") as? String,
+              !group.isEmpty, !group.contains("$(") else { return nil }
+        return UserDefaults(suiteName: group)
+        #else
+        return nil
+        #endif
+    }
 
     private enum Key {
         static let selectedEngineID = "engine.selected"
@@ -25,16 +37,16 @@ final class AppSettings {
     }
 
     var selectedEngineID: String {
-        didSet { defaults.set(selectedEngineID, forKey: Key.selectedEngineID) }
+        didSet { persistTranslation(selectedEngineID, forKey: Key.selectedEngineID) }
     }
 
     var targetLanguage: LanguageCode {
-        didSet { defaults.set(targetLanguage.identifier, forKey: Key.targetLanguage) }
+        didSet { persistTranslation(targetLanguage.identifier, forKey: Key.targetLanguage) }
     }
 
     /// Empty string means automatic detection.
     var sourceLanguageIdentifier: String {
-        didSet { defaults.set(sourceLanguageIdentifier, forKey: Key.sourceLanguage) }
+        didSet { persistTranslation(sourceLanguageIdentifier, forKey: Key.sourceLanguage) }
     }
 
     var historyEnabled: Bool {
@@ -43,7 +55,7 @@ final class AppSettings {
 
     /// When on, requests are refused before reaching any engine that leaves the device.
     var onDeviceOnly: Bool {
-        didSet { defaults.set(onDeviceOnly, forKey: Key.onDeviceOnly) }
+        didSet { persistTranslation(onDeviceOnly, forKey: Key.onDeviceOnly) }
     }
 
     /// Paste whatever another app copies, checked while this app is open. Off by default.
@@ -63,27 +75,28 @@ final class AppSettings {
     }
 
     var anthropicModel: String {
-        didSet { defaults.set(anthropicModel, forKey: Key.anthropicModel) }
+        didSet { persistTranslation(anthropicModel, forKey: Key.anthropicModel) }
     }
 
     var anthropicEffort: String {
-        didSet { defaults.set(anthropicEffort, forKey: Key.anthropicEffort) }
+        didSet { persistTranslation(anthropicEffort, forKey: Key.anthropicEffort) }
     }
 
     var openAIDisplayName: String {
-        didSet { defaults.set(openAIDisplayName, forKey: Key.openAIName) }
+        didSet { persistTranslation(openAIDisplayName, forKey: Key.openAIName) }
     }
 
     var openAIBaseURL: String {
-        didSet { defaults.set(openAIBaseURL, forKey: Key.openAIBaseURL) }
+        didSet { persistTranslation(openAIBaseURL, forKey: Key.openAIBaseURL) }
     }
 
     var openAIModel: String {
-        didSet { defaults.set(openAIModel, forKey: Key.openAIModel) }
+        didSet { persistTranslation(openAIModel, forKey: Key.openAIModel) }
     }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, sharedTranslationDefaults: UserDefaults? = nil) {
         self.defaults = defaults
+        self.sharedTranslationDefaults = sharedTranslationDefaults
         selectedEngineID = defaults.string(forKey: Key.selectedEngineID) ?? ""
         targetLanguage = LanguageCode(defaults.string(forKey: Key.targetLanguage) ?? Self.defaultTargetLanguage().identifier)
         sourceLanguageIdentifier = defaults.string(forKey: Key.sourceLanguage) ?? ""
@@ -97,6 +110,28 @@ final class AppSettings {
         openAIDisplayName = defaults.string(forKey: Key.openAIName) ?? "OpenAI-compatible"
         openAIBaseURL = defaults.string(forKey: Key.openAIBaseURL) ?? "https://api.openai.com/v1"
         openAIModel = defaults.string(forKey: Key.openAIModel) ?? ""
+        publishTranslationPreferences()
+    }
+
+    private func persistTranslation(_ value: Any, forKey key: String) {
+        defaults.set(value, forKey: key)
+        sharedTranslationDefaults?.set(value, forKey: key)
+    }
+
+    private func publishTranslationPreferences() {
+        guard let sharedTranslationDefaults else { return }
+        let values: [String: Any] = [
+            Key.selectedEngineID: selectedEngineID,
+            Key.targetLanguage: targetLanguage.identifier,
+            Key.sourceLanguage: sourceLanguageIdentifier,
+            Key.onDeviceOnly: onDeviceOnly,
+            Key.anthropicModel: anthropicModel,
+            Key.anthropicEffort: anthropicEffort,
+            Key.openAIName: openAIDisplayName,
+            Key.openAIBaseURL: openAIBaseURL,
+            Key.openAIModel: openAIModel,
+        ]
+        for (key, value) in values { sharedTranslationDefaults.set(value, forKey: key) }
     }
 
     var sourceLanguage: SourceLanguage {

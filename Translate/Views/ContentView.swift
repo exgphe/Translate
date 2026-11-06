@@ -194,11 +194,6 @@ struct WorkspaceToolbar: ToolbarContent {
     var body: some ToolbarContent {
         #if os(macOS)
         ToolbarItemGroup(placement: .primaryAction) {
-            Button("Import Image", systemImage: "photo.badge.plus") { workspace.isImportingImage = true }
-                .help("Import an image and recognize its text on device (⇧⌘I)")
-            Button("Clear", systemImage: "trash") { workspace.clear() }
-                .help("Clear source and translation (⌘K)")
-                .disabled(workspace.sourceText.isEmpty && workspace.translatedText.isEmpty)
             Button("Live Captions", systemImage: "captions.bubble") { openWindow(id: "live-captions") }
                 .help("Translate what another app is playing, as live captions (⌥⌘L)")
         }
