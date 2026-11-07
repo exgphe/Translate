@@ -60,6 +60,47 @@ struct CaptionTimelineTests {
         for index in 0..<5 { timeline.appendFinal("line \(index)") }
         #expect(timeline.lines.map(\.original) == ["line 2", "line 3", "line 4"])
     }
+
+    @Test func burstTranslationsEachReceiveReadingTimeWithoutOverlappingMoreThanTwoRows() throws {
+        var timeline = CaptionTimeline()
+        let spokenAt = Date(timeIntervalSince1970: 100)
+        let readyAt = spokenAt.addingTimeInterval(60)
+        for index in 0..<12 { timeline.appendFinal("Sentence \(index)", at: spokenAt) }
+        while let next = timeline.nextUntranslatedLine {
+            timeline.setTranslation("译文 \(next.id)", forLine: next.id, at: readyAt)
+        }
+        #expect(timeline.nextUntranslatedLine == nil)
+        for line in timeline.lines {
+            let start = try #require(line.displayAfter)
+            let end = try #require(line.displayUntil)
+            #expect(line.translatedAt == readyAt)
+            #expect(start >= readyAt)
+            #expect(end.timeIntervalSince(start) >= 3)
+            let visible = timeline.lines.filter { $0.displayAfter! <= start && start < $0.displayUntil! }
+            #expect(visible.count <= 2)
+        }
+        #expect(timeline.lines.last!.displayAfter! > readyAt)
+        let originalSlot = timeline.lines[0].displayAfter
+        timeline.setTranslation("Updated", forLine: 0, at: readyAt.addingTimeInterval(10))
+        #expect(timeline.lines[0].displayAfter == originalSlot)
+    }
+
+    @Test func failedAndEmptyTranslationsDoNotBlockTheQueueAndResetClearsReadingSlots() throws {
+        var timeline = CaptionTimeline()
+        for word in ["one", "two", "three"] { timeline.appendFinal(word) }
+        timeline.markTranslationFailed(forLine: 0)
+        #expect(timeline.nextUntranslatedLine?.id == 1)
+        timeline.setTranslation("   ", forLine: 1)
+        #expect(timeline.nextUntranslatedLine?.id == 2)
+        let later = Date(timeIntervalSince1970: 500)
+        timeline.setTranslation("三", forLine: 2, at: later)
+        timeline.reset()
+        let newLine = timeline.appendFinal("New session")
+        let first = try #require(newLine)
+        let earlier = Date(timeIntervalSince1970: 100)
+        timeline.setTranslation("新的会话", forLine: first.id, at: earlier)
+        #expect(timeline.lines.first?.displayAfter == earlier)
+    }
 }
 
 /// Echoes the prompt's context so tests can check what the caption translator sends.

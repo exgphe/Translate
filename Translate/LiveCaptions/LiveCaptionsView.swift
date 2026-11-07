@@ -1,4 +1,5 @@
 #if os(macOS) || os(visionOS) || os(iOS)
+import CaptionFeed
 import LiveCaptions
 import SwiftUI
 import TranslationCore
@@ -112,10 +113,15 @@ struct LiveCaptionsView: View {
                 } else {
                     ForEach(controller.timeline.lines.suffix(100).reversed()) { line in
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(line.translation ?? line.original)
-                            if line.translation != nil {
-                                Text(line.original).font(.caption).foregroundStyle(.secondary)
-                            } else if line.translationFailed {
+                            if let item = controller.displayItem(for: line) {
+                                Text(item.primary)
+                                if let secondary = item.secondary {
+                                    Text(secondary).font(.caption).foregroundStyle(.secondary)
+                                }
+                            } else if !line.translationFailed {
+                                Text("Translating…").foregroundStyle(.secondary)
+                            }
+                            if line.translationFailed {
                                 Text("Not translated").font(.caption).foregroundStyle(.orange)
                             }
                         }

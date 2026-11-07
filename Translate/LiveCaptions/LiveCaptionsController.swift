@@ -70,12 +70,7 @@ final class LiveCaptionsController {
     }
 
     /// One caption on screen.
-    struct DisplayItem: Identifiable, Equatable {
-        let id: String
-        let primary: String
-        let secondary: String?
-        let isProvisional: Bool
-    }
+    typealias DisplayItem = CaptionFeedSnapshot.DisplayLine
 
     private enum Key {
         static let spokenLocale = "captions.spokenLocale"
@@ -108,7 +103,7 @@ final class LiveCaptionsController {
         didSet { defaults.set(translator.storageValue, forKey: Key.translator); publishExtensionConfiguration() }
     }
     var showsOriginal: Bool {
-        didSet { defaults.set(showsOriginal, forKey: Key.showsOriginal) }
+        didSet { defaults.set(showsOriginal, forKey: Key.showsOriginal); publishFeed() }
     }
     var textSize: Double {
         didSet { defaults.set(textSize, forKey: Key.textSize) }
@@ -137,7 +132,6 @@ final class LiveCaptionsController {
     @ObservationIgnored private var translationChain: Task<Void, Never>?
     @ObservationIgnored private var volatileTranslation: Task<Void, Never>?
     @ObservationIgnored private var lastVolatileSource = ""
-    @ObservationIgnored private var newestLineID = -1
     #if os(macOS)
     @ObservationIgnored private let overlay = CaptionOverlayPanelController()
     #endif
@@ -305,7 +299,6 @@ final class LiveCaptionsController {
             timeline.reset()
             lastTranscriptAt = nil
             transcriptEventCount = 0
-            newestLineID = -1
             lastVolatileSource = ""
             activeTranslatorName = translator?.displayName
             phase = .running
@@ -374,18 +367,7 @@ final class LiveCaptionsController {
         do {
             for try await event in events {
                 guard !Task.isCancelled, session == feedSessionID else { return }
-                lastTranscriptAt = .now
-                transcriptEventCount += 1
-                switch event {
-                case .volatile(let text):
-                    timeline.updateVolatile(text)
-                    if let translator, translator.translatesVolatileText { translateVolatile(using: translator) }
-                case .final(let text):
-                    guard let line = timeline.appendFinal(text) else { continue }
-                    newestLineID = line.id
-                    if let translator { enqueueTranslation(of: line, using: translator) }
-                }
-                publishFeed()
+                receive(event, translator: translator)
             }
             if session == feedSessionID, phase == .running { await stop() }
         } catch is CancellationError {
@@ -398,25 +380,42 @@ final class LiveCaptionsController {
         }
     }
 
-    /// Finished phrases are translated in order. A slow engine that falls behind skips lines
-    /// that have already scrolled away, so the captions on screen stay current.
-    private func enqueueTranslation(of line: CaptionLine, using translator: any CaptionTranslating) {
+    /// Folds one recognition event into the timeline and wakes the translation worker.
+    func receive(_ event: TranscriptEvent, translator: (any CaptionTranslating)?) {
+        lastTranscriptAt = .now
+        transcriptEventCount += 1
+        switch event {
+        case .volatile(let text):
+            timeline.updateVolatile(text)
+            if let translator, translator.translatesVolatileText { translateVolatile(using: translator) }
+        case .final(let text):
+            guard timeline.appendFinal(text) != nil else { return }
+            if let translator { translatePendingLines(using: translator) }
+        }
+        publishFeed()
+    }
+
+    /// One worker drains the retained timeline in order. New speech never cancels an older
+    /// sentence; the 300-line timeline bounds the queue without a chain of waiting tasks.
+    private func translatePendingLines(using translator: any CaptionTranslating) {
+        guard translationChain == nil else { return }
         let session = feedSessionID
-        let previous = translationChain
-        let context = timeline.context(before: line.id, count: 3)
         translationChain = Task {
-            await previous?.value
-            guard !Task.isCancelled, session == feedSessionID, line.id >= newestLineID - 2 else { return }
-            do {
-                let translation = try await translator.translate(line.original, previousLines: context)
-                guard !Task.isCancelled, session == feedSessionID else { return }
-                timeline.setTranslation(translation, forLine: line.id)
+            defer { if session == feedSessionID { translationChain = nil } }
+            while !Task.isCancelled, session == feedSessionID, let line = timeline.nextUntranslatedLine {
+                let context = timeline.context(before: line.id, count: 3)
+                do {
+                    let translation = try await translator.translate(line.original, previousLines: context)
+                    guard !Task.isCancelled, session == feedSessionID else { return }
+                    timeline.setTranslation(translation, forLine: line.id)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard !Task.isCancelled, session == feedSessionID else { return }
+                    timeline.markTranslationFailed(forLine: line.id)
+                    lastTranslationError = Self.describe(error)
+                }
                 publishFeed()
-            } catch is CancellationError {
-            } catch {
-                guard !Task.isCancelled, session == feedSessionID else { return }
-                timeline.markTranslationFailed(forLine: line.id)
-                lastTranslationError = Self.describe(error)
             }
         }
     }
@@ -495,7 +494,7 @@ final class LiveCaptionsController {
 
     /// Shares the captions with the Safari extension, coalescing bursts of updates.
     private func publishFeed() {
-        guard feedStore != nil, feedPublishTask == nil else { return }
+        guard phase == .running, feedStore != nil, feedPublishTask == nil else { return }
         let session = feedSessionID
         feedPublishTask = Task {
             do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
@@ -507,46 +506,51 @@ final class LiveCaptionsController {
 
     private func writeFeed(active: Bool = true) {
         guard let feedStore else { return }
+        var snapshot = feedSnapshot(active: active)
+        // Keep every queued reading slot, including late translations of older speech,
+        // without serializing the entire retained transcript on every volatile update.
+        snapshot.lines.removeAll { line in
+            let end = line.displayUntil ?? (line.translatedAt ?? line.finalizedAt).addingTimeInterval(7)
+            return end <= snapshot.updatedAt
+        }
+        try? feedStore.write(snapshot)
+    }
+
+    private func feedSnapshot(active: Bool = true) -> CaptionFeedSnapshot {
         let audio = capture?.progress ?? AudioCaptureProgress()
-        let snapshot = CaptionFeedSnapshot(
+        return CaptionFeedSnapshot(
             sessionID: feedSessionID,
             isActive: active && phase == .running,
             updatedAt: .now,
-            lines: timeline.lines.suffix(8).map {
-                .init(id: $0.id, original: $0.original, translation: $0.translation, finalizedAt: $0.finalizedAt)
-            },
+            lines: timeline.lines.map(feedLine),
             volatileOriginal: timeline.volatileOriginal,
             volatileTranslation: timeline.volatileTranslation,
             showsOriginal: showsOriginal,
             language: activeTranslatorName == nil ? spokenLanguage.identifier : targetLanguage.identifier,
             diagnostics: .init(lastAudioAt: audio.lastAudioAt, audioBufferCount: audio.bufferCount,
-                               lastTranscriptAt: lastTranscriptAt, transcriptEventCount: transcriptEventCount)
+                               lastTranscriptAt: lastTranscriptAt, transcriptEventCount: transcriptEventCount),
+            translationEnabled: translationNeeded
         )
-        try? feedStore.write(snapshot)
+    }
+
+    private func feedLine(_ line: CaptionLine) -> CaptionFeedSnapshot.Line {
+        .init(id: line.id, original: line.original, translation: line.translation, finalizedAt: line.finalizedAt,
+              translatedAt: line.translatedAt, displayAfter: line.displayAfter, displayUntil: line.displayUntil)
     }
 
     // MARK: - Display
 
-    /// What the caption overlay shows now: the phrase in progress and the last finished line,
-    /// or the last two finished lines. Lines disappear a few seconds after they end.
+    /// The compact macOS overlay follows exactly the same reading slots as Safari.
     func displayItems(now: Date) -> [DisplayItem] {
-        let recent = timeline.recentLines(limit: 2, within: 7, now: now)
-        var items: [DisplayItem] = []
-        let finals = timeline.volatileOriginal.isEmpty ? recent : Array(recent.suffix(1))
-        for line in finals {
-            items.append(item(id: "line-\(line.id)", original: line.original, translation: line.translation, provisional: false))
-        }
-        if !timeline.volatileOriginal.isEmpty {
-            items.append(item(id: "volatile", original: timeline.volatileOriginal, translation: timeline.volatileTranslation, provisional: true))
-        }
-        return items
+        feedSnapshot().displayLines(now: now)
     }
 
-    private func item(id: String, original: String, translation: String?, provisional: Bool) -> DisplayItem {
-        guard let translation, !translation.isEmpty else {
-            return DisplayItem(id: id, primary: original, secondary: nil, isProvisional: provisional)
-        }
-        return DisplayItem(id: id, primary: translation, secondary: showsOriginal ? original : nil, isProvisional: provisional)
+    var historyItems: [DisplayItem] {
+        feedSnapshot().historyLines()
+    }
+
+    func displayItem(for line: CaptionLine) -> DisplayItem? {
+        CaptionFeedSnapshot.displayLine(for: feedLine(line), showsOriginal: showsOriginal, translationEnabled: translationNeeded)
     }
 
     var statusText: String {

@@ -51,10 +51,27 @@ struct CaptionFeedTests {
         #expect(store.read() == nil)
     }
 
-    @Test func showsTheLastLineAndThePhraseInProgress() {
+    @Test func readingScheduleAndOriginalPreferenceSurviveNativeMessagingStorage() throws {
+        var feed = snapshot(lines: [line(0, "Hello.", "你好。", ago: 30)], showsOriginal: false)
+        feed.lines[0].translatedAt = now
+        feed.lines[0].displayAfter = now.addingTimeInterval(2)
+        feed.lines[0].displayUntil = now.addingTimeInterval(5)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let decoded = try decoder.decode(CaptionFeedSnapshot.self, from: encoder.encode(feed))
+        #expect(decoded == feed)
+        #expect(CaptionFeedReply.make(from: decoded, now: now)["text"] as? String == "")
+        #expect(CaptionFeedReply.make(from: decoded, now: now.addingTimeInterval(2))["text"] as? String == "你好。")
+        #expect(CaptionFeedReply.make(from: decoded, now: now.addingTimeInterval(5))["text"] as? String == "")
+    }
+
+    @Test func unfinishedSpeechCannotEvictCompletedTranslations() {
         let feed = snapshot(lines: [line(0, "One.", "一。", ago: 5), line(1, "Two.", "二。", ago: 3)], volatile: "Three", volatileTranslation: "三")
-        #expect(feed.displayLines(now: now).map(\.primary) == ["二。", "三"])
-        #expect(feed.cueText(now: now) == "二。\nTwo.\n三\nThree")
+        #expect(feed.displayLines(now: now).map(\.primary) == ["一。", "二。"])
+        #expect(feed.cueText(now: now) == "一。\nOne.\n二。\nTwo.")
+        #expect(feed.displayLines(now: now.addingTimeInterval(3)).map(\.primary) == ["二。", "三"])
     }
 
     @Test func finishedLinesExpireAndOriginalCanBeHidden() {
@@ -65,6 +82,41 @@ struct CaptionFeedTests {
     @Test func untranslatedLinesShowTheOriginal() {
         let feed = snapshot(lines: [line(0, "Pending.", nil, ago: 1)])
         #expect(feed.cueText(now: now) == "Pending.")
+    }
+
+    @Test func hiddenOriginalsNeverLeakWhileTranslationIsPending() {
+        var feed = snapshot(lines: [line(0, "Pending.", nil, ago: 1)], volatile: "Still speaking", showsOriginal: false)
+        #expect(feed.cueText(now: now).isEmpty)
+        #expect(feed.historyLines().isEmpty)
+        feed.lines[0].translation = "   "
+        feed.volatileTranslation = "\n"
+        #expect(feed.cueText(now: now).isEmpty)
+        feed.lines[0].translation = "译文"
+        feed.volatileTranslation = "继续说话"
+        #expect(feed.cueText(now: now) == "译文\n继续说话")
+        #expect(feed.historyLines().allSatisfy { $0.secondary == nil })
+    }
+
+    @Test func originalOnlyModeWorksWithShowOriginalTurnedOff() {
+        var feed = snapshot(lines: [line(0, "Hello.", nil, ago: 1)], volatile: "Next", showsOriginal: false)
+        feed.translationEnabled = false
+        #expect(feed.cueText(now: now) == "Hello.\nNext")
+        #expect(feed.historyLines().map(\.primary) == ["Hello.", "Next"])
+    }
+
+    @Test func lateTranslationsUseTheirReadingSlotsAndSurviveNewSpeech() {
+        let ready = CaptionFeedSnapshot.Line(id: 0, original: "Old speech", translation: "迟到的译文",
+            finalizedAt: now.addingTimeInterval(-60), translatedAt: now, displayAfter: now, displayUntil: now.addingTimeInterval(5))
+        let queued = CaptionFeedSnapshot.Line(id: 1, original: "Next speech", translation: "下一句译文",
+            finalizedAt: now.addingTimeInterval(-50), translatedAt: now, displayAfter: now.addingTimeInterval(5), displayUntil: now.addingTimeInterval(10))
+        let pending = (2..<20).map { line($0, "Pending \($0)", nil, ago: 1) }
+        let feed = snapshot(lines: [ready, queued] + pending, volatile: "Untranslated", showsOriginal: false)
+        #expect(feed.cueText(now: now) == "迟到的译文")
+        #expect(feed.cueText(now: now.addingTimeInterval(4.9)) == "迟到的译文")
+        #expect(feed.cueText(now: now.addingTimeInterval(5)) == "下一句译文")
+        #expect(feed.cueText(now: now.addingTimeInterval(10)).isEmpty)
+        // The scrollable window retains both completed lines without any time expiry.
+        #expect(feed.historyLines().map(\.id) == ["line-0", "line-1"])
     }
 
     @Test func replyIsInactiveWhenStoppedOrStale() {
@@ -106,6 +158,7 @@ struct CaptionFeedTests {
         #expect(try decoder.decode(CaptionFeedSnapshot.self, from: encoder.encode(feed)) == feed)
         var old = try #require(JSONSerialization.jsonObject(with: encoder.encode(feed)) as? [String: Any])
         old.removeValue(forKey: "diagnostics")
+        old.removeValue(forKey: "translationEnabled")
         #expect(try decoder.decode(CaptionFeedSnapshot.self, from: JSONSerialization.data(withJSONObject: old)).diagnostics == nil)
     }
 }

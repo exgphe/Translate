@@ -36,20 +36,34 @@ public struct CaptionFeedSnapshot: Codable, Equatable, Sendable {
         public var original: String
         public var translation: String?
         public var finalizedAt: Date
+        public var translatedAt: Date?
+        public var displayAfter: Date?
+        public var displayUntil: Date?
 
-        public init(id: Int, original: String, translation: String?, finalizedAt: Date) {
+        public init(id: Int, original: String, translation: String?, finalizedAt: Date, translatedAt: Date? = nil, displayAfter: Date? = nil, displayUntil: Date? = nil) {
             self.id = id
             self.original = original
             self.translation = translation
             self.finalizedAt = finalizedAt
+            self.translatedAt = translatedAt
+            self.displayAfter = displayAfter
+            self.displayUntil = displayUntil
         }
     }
 
     /// One caption as displayed: the translation, with the original under it when wanted.
-    public struct DisplayLine: Equatable, Sendable {
+    public struct DisplayLine: Identifiable, Equatable, Sendable {
+        public var id: String
         public var primary: String
         public var secondary: String?
         public var isProvisional: Bool
+
+        public init(id: String, primary: String, secondary: String?, isProvisional: Bool) {
+            self.id = id
+            self.primary = primary
+            self.secondary = secondary
+            self.isProvisional = isProvisional
+        }
     }
 
     public var sessionID: UUID
@@ -61,6 +75,8 @@ public struct CaptionFeedSnapshot: Codable, Equatable, Sendable {
     public var volatileOriginal: String
     public var volatileTranslation: String?
     public var showsOriginal: Bool
+    /// Optional so an older on-disk feed still decodes. Old feeds default to translating.
+    public var translationEnabled: Bool?
     /// BCP-47 code of the caption text, used as the subtitle track's language.
     public var language: String
     public var diagnostics: Diagnostics?
@@ -74,7 +90,8 @@ public struct CaptionFeedSnapshot: Codable, Equatable, Sendable {
         volatileTranslation: String?,
         showsOriginal: Bool,
         language: String,
-        diagnostics: Diagnostics? = nil
+        diagnostics: Diagnostics? = nil,
+        translationEnabled: Bool? = true
     ) {
         self.sessionID = sessionID
         self.isActive = isActive
@@ -85,25 +102,57 @@ public struct CaptionFeedSnapshot: Codable, Equatable, Sendable {
         self.showsOriginal = showsOriginal
         self.language = language
         self.diagnostics = diagnostics
+        self.translationEnabled = translationEnabled
     }
 
     public func isLive(now: Date, timeout: TimeInterval = 15) -> Bool {
         isActive && now.timeIntervalSince(updatedAt) < timeout
     }
 
-    /// What to show at `now`, with the same rules as the app's own caption display: the phrase
-    /// in progress plus the last finished line, or the last two finished lines; finished lines
-    /// disappear `lingering` seconds after they end.
+    /// Completed translations use their reading slots, measured from completion rather than
+    /// recognition. Untranslated speech can fill an empty row only when originals are wanted.
     public func displayLines(now: Date, lingering: TimeInterval = 7) -> [DisplayLine] {
-        let recent = lines.filter { now.timeIntervalSince($0.finalizedAt) <= lingering }
-        let volatile = volatileOriginal.trimmingCharacters(in: .whitespacesAndNewlines)
-        var result = (volatile.isEmpty ? recent.suffix(2) : recent.suffix(1)).map {
-            display(original: $0.original, translation: $0.translation, provisional: false)
+        let translated = lines.filter { line in
+            guard let text = line.translation, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+            let start = line.displayAfter ?? line.translatedAt ?? line.finalizedAt
+            let end = line.displayUntil ?? start.addingTimeInterval(lingering)
+            return start <= now && now < end
         }
-        if !volatile.isEmpty {
-            result.append(display(original: volatile, translation: volatileTranslation, provisional: true))
+        // Scheduled final translations own both rows until their reading time has elapsed.
+        // A volatile phrase must never evict one, even if it already has a translation.
+        var result = translated.suffix(2).compactMap { displayLine(for: $0) }
+        if result.count < 2, let volatile = provisionalLine {
+            result.append(volatile)
+        }
+        if result.count < 2 {
+            let originals = lines.filter { line in
+                line.translation == nil && now.timeIntervalSince(line.finalizedAt) <= lingering
+            }.compactMap { displayLine(for: $0) }
+            result.insert(contentsOf: originals.suffix(2 - result.count), at: 0)
         }
         return result
+    }
+
+    /// Retained transcript for a scrollable window. In translation mode, append finished
+    /// results as they arrive: a burst of untranslated speech cannot push them out of view.
+    public func historyLines() -> [DisplayLine] {
+        var result = lines.filter { translationEnabled == false || $0.translation != nil }.compactMap { displayLine(for: $0) }
+        if translationEnabled == false || volatileTranslation != nil, let provisionalLine { result.append(provisionalLine) }
+        return result
+    }
+
+    public func displayLine(for line: Line) -> DisplayLine? {
+        Self.displayLine(for: line, showsOriginal: showsOriginal, translationEnabled: translationEnabled != false)
+    }
+
+    public static func displayLine(for line: Line, showsOriginal: Bool, translationEnabled: Bool) -> DisplayLine? {
+        display(id: "line-\(line.id)", original: line.original, translation: line.translation, provisional: false,
+                showsOriginal: showsOriginal, translationEnabled: translationEnabled)
+    }
+
+    private var provisionalLine: DisplayLine? {
+        Self.display(id: "volatile", original: volatileOriginal, translation: volatileTranslation, provisional: true,
+                     showsOriginal: showsOriginal, translationEnabled: translationEnabled != false)
     }
 
     /// The display lines as plain cue text (WebVTT cue text uses line breaks for lines).
@@ -113,11 +162,14 @@ public struct CaptionFeedSnapshot: Codable, Equatable, Sendable {
             .joined(separator: "\n")
     }
 
-    private func display(original: String, translation: String?, provisional: Bool) -> DisplayLine {
-        guard let translation, !translation.isEmpty else {
-            return DisplayLine(primary: original, secondary: nil, isProvisional: provisional)
+    private static func display(id: String, original: String, translation: String?, provisional: Bool, showsOriginal: Bool, translationEnabled: Bool) -> DisplayLine? {
+        let original = original.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !original.isEmpty else { return nil }
+        guard let translation, !translation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            guard showsOriginal || !translationEnabled else { return nil }
+            return DisplayLine(id: id, primary: original, secondary: nil, isProvisional: provisional)
         }
-        return DisplayLine(primary: translation, secondary: showsOriginal ? original : nil, isProvisional: provisional)
+        return DisplayLine(id: id, primary: translation, secondary: showsOriginal ? original : nil, isProvisional: provisional)
     }
 }
 
