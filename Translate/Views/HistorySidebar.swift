@@ -8,9 +8,7 @@ struct HistorySidebar: View {
     var onPick: ((HistoryEntry) -> Void)? = nil
     @Environment(\.modelContext) private var modelContext
     @Environment(AppSettings.self) private var settings
-    @Environment(AppModel.self) private var model
     @Query(sort: \HistoryEntry.createdAt, order: .reverse) private var entries: [HistoryEntry]
-    @State private var isConfirmingClear = false
 
     var body: some View {
         List(selection: $selection) {
@@ -48,22 +46,6 @@ struct HistorySidebar: View {
                 }
             }
         }
-        #if !os(macOS)
-        .toolbar {
-            ToolbarItem {
-                Button("Clear History", systemImage: "trash") { isConfirmingClear = true }
-                    .disabled(entries.isEmpty)
-            }
-        }
-        .confirmationDialog("Delete all history?", isPresented: $isConfirmingClear) {
-            Button("Delete All", role: .destructive) {
-                selection = nil
-                model.deleteAllHistory()
-            }
-        } message: {
-            Text("This removes every saved translation from this device. This cannot be undone.")
-        }
-        #endif
     }
 
     private func delete(_ entry: HistoryEntry) {

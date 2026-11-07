@@ -300,11 +300,11 @@ final class TranslationWorkspace {
         }
     }
 
-    func importImage(url: URL) {
+    func importImage(url: URL, translateWhenDone: Bool = false) {
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
         do {
-            importImage(data: try Data(contentsOf: url))
+            importImage(data: try Data(contentsOf: url), translateWhenDone: translateWhenDone)
         } catch {
             phase = .failed(message: error.localizedDescription, suggestion: nil)
         }

@@ -6,6 +6,14 @@ import TranslationCore
 @Observable
 @MainActor
 final class SelectedTextTranslation {
+    struct RequestIdentity: Hashable {
+        let input: String
+        let source: SourceLanguage
+        let target: LanguageCode
+        let engineID: String
+        let networkPolicy: NetworkPolicy
+    }
+
     var input = "" { didSet { if input != oldValue { invalidate() } } }
     var sourceLanguage: SourceLanguage = .automatic {
         didSet { if sourceLanguage != oldValue { invalidate() } }
@@ -23,12 +31,29 @@ final class SelectedTextTranslation {
     private(set) var status: String?
     private(set) var error: String?
     private(set) var result: TranslationResult?
+    private(set) var detectedLanguage: LanguageCode?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
+    @ObservationIgnored private var automaticRequest: RequestIdentity?
+
+    var requestIdentity: RequestIdentity {
+        RequestIdentity(input: input, source: sourceLanguage, target: targetLanguage,
+                        engineID: engineID, networkPolicy: networkPolicy)
+    }
 
     var completedText: String? {
         guard !isTranslating, let result, !result.text.isEmpty else { return nil }
         return result.text
+    }
+
+    /// View tasks can run again after layout changes. Only a changed selection or
+    /// configuration starts a new request; stopping or a failure requires an explicit retry.
+    func translateAutomatically(using provider: any TranslationProvider) {
+        guard !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              provider.id == engineID, automaticRequest != requestIdentity else { return }
+        let identity = requestIdentity
+        translate(using: provider)
+        automaticRequest = identity
     }
 
     func translate(using provider: any TranslationProvider) {
@@ -54,8 +79,10 @@ final class SelectedTextTranslation {
                     case .started(let modelName): self.status = modelName
                     case .status(let message): self.status = message
                     case .text(let text): self.text = text
-                    case .completed(let result): self.result = result
-                    case .detectedLanguage: break
+                    case .completed(let result):
+                        self.result = result
+                        self.text = result.text
+                    case .detectedLanguage(let language): self.detectedLanguage = language
                     }
                 }
                 guard let self, self.generation == generation else { return }
@@ -85,5 +112,7 @@ final class SelectedTextTranslation {
         cancel()
         text = ""
         error = nil
+        detectedLanguage = nil
+        automaticRequest = nil
     }
 }

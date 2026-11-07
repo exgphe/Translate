@@ -18,6 +18,17 @@ final class TranslateUITests: XCTestCase {
         app.launch()
     }
 
+    private var sourceEditor: XCUIElement {
+        app.descendants(matching: .any).matching(identifier: "sourceEditor").firstMatch
+    }
+
+    private func openSettings() {
+        #if os(iOS)
+        app.buttons["workspaceMenu"].tap()
+        #endif
+        app.buttons["settingsButton"].firstMatch.tap()
+    }
+
     private func snap(_ name: String) {
         #if os(visionOS)
         // XCUIScreen returns a 1×1 placeholder on visionOS. Log a timestamp and hold the state
@@ -37,15 +48,15 @@ final class TranslateUITests: XCTestCase {
 
     @MainActor
     func testTranslateFlowShowsErrorWhenNoEngineIsConfigured() throws {
-        let editor = app.textViews["sourceEditor"]
+        let editor = sourceEditor
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         editor.tap()
         editor.typeText("The meeting was moved to Thursday.")
         snap("1-typed")
 
-        // Dismiss the keyboard first so its accessory bar cannot intercept the tap.
-        let done = app.buttons["Done"].firstMatch
-        if done.waitForExistence(timeout: 2) { done.tap() }
+        #if os(iOS)
+        XCTAssertFalse(app.buttons["Done"].exists)
+        #endif
         let translate = app.buttons["translateButton"]
         XCTAssertTrue(translate.waitForExistence(timeout: 5))
         translate.tap()
@@ -63,8 +74,8 @@ final class TranslateUITests: XCTestCase {
             XCTAssertTrue(app.navigationBars["Engines"].waitForExistence(timeout: 5))
             snap("4-engines")
             app.navigationBars["Engines"].buttons.firstMatch.tap()
-            XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 5))
-            app.buttons["Done"].firstMatch.tap()
+            XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 5))
+            app.buttons["Close"].firstMatch.tap()
         }
     }
 
@@ -74,6 +85,7 @@ final class TranslateUITests: XCTestCase {
         if history.waitForExistence(timeout: 5) {
             history.tap()
             XCTAssertTrue(app.navigationBars["History"].waitForExistence(timeout: 5))
+            XCTAssertFalse(app.buttons["Clear History"].exists)
             snap("5-history")
             app.navigationBars.buttons.firstMatch.tap()
         } else {
@@ -85,14 +97,39 @@ final class TranslateUITests: XCTestCase {
             XCTAssertTrue(app.staticTexts["No History"].waitForExistence(timeout: 5))
             snap("5-history-sidebar")
         }
-        let settings = app.buttons["settingsButton"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 5))
-        settings.tap()
+        openSettings()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         app.buttons["Privacy"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars["Privacy"].waitForExistence(timeout: 5))
         snap("6-privacy")
     }
+
+    #if os(iOS)
+    @MainActor
+    func testNativeToolbarAndHistorySettings() throws {
+        XCTAssertTrue(sourceEditor.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["translateButton"].isHittable)
+        XCTAssertFalse(app.buttons["Done"].exists)
+        snap("native-empty")
+
+        app.buttons["importImageMenu"].tap()
+        XCTAssertTrue(app.buttons["Choose Photo"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Import Image File"].exists)
+        snap("native-image-menu")
+        app.tap()
+
+        openSettings()
+        XCTAssertTrue(app.buttons["General"].waitForExistence(timeout: 5))
+        app.buttons["General"].tap()
+        let clear = app.buttons["Clear All History…"]
+        if !clear.isHittable { app.swipeUp() }
+        XCTAssertTrue(clear.waitForExistence(timeout: 5))
+        clear.tap()
+        XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 5))
+        snap("native-clear-history-confirmation")
+        app.buttons["Cancel"].tap()
+    }
+    #endif
 
     #if canImport(UIKit)
     /// With auto-paste on, text copied elsewhere lands in the source without any tap
@@ -115,7 +152,7 @@ final class TranslateUITests: XCTestCase {
         UIPasteboard.general.string = sample
         allowPasteIfAsked()
 
-        let editor = app.textViews["sourceEditor"]
+        let editor = sourceEditor
         expectation(for: NSPredicate(format: "value CONTAINS %@", sample), evaluatedWith: editor)
         waitForExpectations(timeout: 20)
         snap("7-auto-pasted")
@@ -132,8 +169,8 @@ final class TranslateUITests: XCTestCase {
         }
     }
 
-    /// The action bar's system Paste button (bottom ornament on visionOS) fills the source in
-    /// one tap without a permission prompt, and the grouped controls are all reachable.
+    /// The standard paste action fills the source, and the grouped controls stay reachable.
+    /// iOS presents that action in a menu so its toolbar button can use native glass styling.
     @MainActor
     func testPasteBarAndControls() throws {
         let sample = "Break a leg tonight!"
@@ -148,8 +185,13 @@ final class TranslateUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 2)
         snap("v0-ornament")
         paste.tap()
+        #if os(iOS)
+        let pasteAction = app.buttons.matching(NSPredicate(format: "label == 'Paste' AND identifier != 'pasteButton'")).firstMatch
+        XCTAssertTrue(pasteAction.waitForExistence(timeout: 3))
+        pasteAction.tap()
+        #endif
 
-        let editor = app.textViews["sourceEditor"]
+        let editor = sourceEditor
         let filled = NSPredicate(format: "value CONTAINS %@", sample)
         expectation(for: filled, evaluatedWith: editor)
         waitForExpectations(timeout: 10)
@@ -158,17 +200,21 @@ final class TranslateUITests: XCTestCase {
         // Translation either completes or shows a recovery banner; both mean the request ran.
         let settled = app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] 'No translation engine' OR label CONTAINS[c] 'API key' OR label CONTAINS[c] 'Apple Intelligence' OR label CONTAINS[c] '祝'")).firstMatch
         _ = settled.waitForExistence(timeout: 20)
+        #if os(iOS)
+        XCTAssertFalse(app.buttons["translateButton"].isHittable)
+        #else
         XCTAssertTrue(app.buttons["translateButton"].waitForExistence(timeout: 20))
+        #endif
         snap("v2-after-translate")
 
-        app.buttons["Context"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["Context for this translation"].waitForExistence(timeout: 5))
-        snap("v3-context")
-        app.buttons["Translate with Context"].firstMatch.tap()
+        if app.buttons["Context"].firstMatch.exists {
+            app.buttons["Context"].firstMatch.tap()
+            XCTAssertTrue(app.staticTexts["Context for this translation"].waitForExistence(timeout: 5))
+            snap("v3-context")
+            app.buttons["Translate with Context"].firstMatch.tap()
+        }
 
-        let settings = app.buttons["settingsButton"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 10))
-        settings.tap()
+        openSettings()
         app.buttons["General"].firstMatch.tap()
         XCTAssertTrue(app.switches["Paste automatically when the clipboard changes"].waitForExistence(timeout: 5))
         snap("v4-general")
@@ -180,7 +226,11 @@ final class TranslateUITests: XCTestCase {
     /// so Start must be disabled with an explanation instead of failing later.
     @MainActor
     func testLiveCaptionsPanelOpens() throws {
+        #if os(iOS)
+        let actions = app.buttons["workspaceMenu"].firstMatch
+        #else
         let actions = app.buttons["Actions"].firstMatch
+        #endif
         XCTAssertTrue(actions.waitForExistence(timeout: 10))
         actions.tap()
         snap("lc-menu")

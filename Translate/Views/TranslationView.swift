@@ -11,6 +11,9 @@ struct TranslationView: View {
     var layout: Layout = .sideBySide
 
     var body: some View {
+        #if os(iOS)
+        IOSTranslationView(layout: layout)
+        #else
         VStack(spacing: 0) {
             LanguageBar(isCompact: layout == .stacked)
                 .padding(.horizontal, 12)
@@ -42,8 +45,6 @@ struct TranslationView: View {
         #else
         .background(.background)
         #endif
-        #if os(iOS)
-        .scrollDismissesKeyboard(.interactively)
         #endif
     }
 }
@@ -53,6 +54,7 @@ struct TranslationView: View {
 struct LanguageBar: View {
     @Environment(TranslationWorkspace.self) private var workspace
     var isCompact = false
+    var onLanguageChange: (() -> Void)?
 
     private var sourceOptions: [LanguageCode] {
         var codes = LanguageCode.commonTargets
@@ -72,8 +74,11 @@ struct LanguageBar: View {
             #if os(macOS)
             Spacer(minLength: 0)
             #endif
-            languageMenu(title: detectedLabel, accessibilityID: "sourceLanguage") {
-                Picker("Source", selection: $workspace.sourceLanguage) {
+            languageMenu(title: workspace.sourceLanguage.explicitCode?.displayName() ?? detectedLabel, accessibilityID: "sourceLanguage") {
+                Picker("Source", selection: Binding(
+                    get: { workspace.sourceLanguage },
+                    set: { workspace.sourceLanguage = $0; onLanguageChange?() }
+                )) {
                     Text(detectedLabel).tag(SourceLanguage.automatic)
                     Divider()
                     ForEach(sourceOptions) { code in
@@ -84,6 +89,7 @@ struct LanguageBar: View {
 
             Button {
                 workspace.swapLanguages()
+                onLanguageChange?()
             } label: {
                 Image(systemName: "arrow.left.arrow.right")
             }
@@ -93,7 +99,10 @@ struct LanguageBar: View {
             .accessibilityLabel("Swap languages")
 
             languageMenu(title: workspace.targetLanguage.displayName(), accessibilityID: "targetLanguage") {
-                Picker("Target", selection: $workspace.targetLanguage) {
+                Picker("Target", selection: Binding(
+                    get: { workspace.targetLanguage },
+                    set: { workspace.targetLanguage = $0; onLanguageChange?() }
+                )) {
                     ForEach(targetOptions) { code in
                         Text(code.displayName()).tag(code)
                     }
@@ -186,7 +195,6 @@ struct SourcePane: View {
                                 workspace.translate()
                             }
                             .disabled(!workspace.canTranslate)
-                            Button("Done") { isEditing = false }
                         }
                     }
                     #endif
@@ -253,7 +261,7 @@ struct ImageAttachmentView: View {
                                 .foregroundStyle(.orange)
                         }
                     }
-                    #if !os(macOS)
+                    #if os(visionOS)
                     Text("Only the recognized text is sent to the engine. The image stays on this device.")
                         .foregroundStyle(.secondary)
                     #endif

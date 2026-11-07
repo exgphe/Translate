@@ -53,7 +53,8 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Close", systemImage: "xmark") { dismiss() }
+                        .labelStyle(.iconOnly)
                 }
             }
         }
@@ -340,7 +341,7 @@ struct GeneralSettingsView: View {
             #endif
         }
         .formStyle(.grouped)
-        .confirmationDialog("Clear all history?", isPresented: $isConfirmingClearHistory, titleVisibility: .visible) {
+        .alert("Clear all history?", isPresented: $isConfirmingClearHistory) {
             Button("Clear All History", role: .destructive) { model.deleteAllHistory() }
             Button("Cancel", role: .cancel) {}
         } message: {

@@ -46,7 +46,11 @@ struct ContentView: View {
             allowsMultipleSelection: false
         ) { result in
             if case .success(let urls) = result, let url = urls.first {
+                #if os(iOS)
+                workspace.importImage(url: url, translateWhenDone: true)
+                #else
                 workspace.importImage(url: url)
+                #endif
             }
         }
         #if !os(macOS)
@@ -55,7 +59,11 @@ struct ContentView: View {
             guard let item else { return }
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self) {
+                    #if os(iOS)
+                    workspace.importImage(data: data, translateWhenDone: true)
+                    #else
                     workspace.importImage(data: data)
+                    #endif
                 }
                 photoItem = nil
             }
@@ -72,7 +80,8 @@ struct ContentView: View {
                     .toolbarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { workspace.isShowingLiveCaptions = false }
+                            Button("Close", systemImage: "xmark") { workspace.isShowingLiveCaptions = false }
+                                .labelStyle(.iconOnly)
                         }
                     }
             }
@@ -196,6 +205,17 @@ struct WorkspaceToolbar: ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
             Button("Live Captions", systemImage: "captions.bubble") { openWindow(id: "live-captions") }
                 .help("Translate what another app is playing, as live captions (⌥⌘L)")
+        }
+        #elseif os(iOS)
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Button("Live Captions", systemImage: "captions.bubble") { workspace.isShowingLiveCaptions = true }
+                Button("Settings", systemImage: "gearshape") { workspace.isShowingSettings = true }
+                    .accessibilityIdentifier("settingsButton")
+            } label: {
+                Label("More", systemImage: "ellipsis")
+            }
+            .accessibilityIdentifier("workspaceMenu")
         }
         #else
         ToolbarItemGroup(placement: .primaryAction) {

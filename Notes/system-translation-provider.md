@@ -14,12 +14,16 @@ The framework itself is available starting with iOS/iPadOS 18.4.
    The app's Settings screen also explains this and opens its public system
    settings page. There is no API to select a default app on the user's behalf.
 3. Select text in another app and choose Translate in the system selection menu.
-4. In the system sheet, choose the source/target languages and engine, then tap
-   Translate. The sheet streams the result and offers Stop, Retry, Share, and
-   (only when the host allows it) Replace. Done dismisses without editing.
+4. The system sheet immediately shows the original text and starts translating
+   with the configured engine and languages. Changing a language or engine starts
+   a new request. The sheet streams the result and offers Stop, Retry, Share, and
+   (only when the host allows it) Replace. The system close button dismisses
+   without editing. Long source text can be expanded with Show More.
 
-Cloud translation starts only after tapping Translate. The sheet shows where
-processing happens and uses the app's on-device-only policy. Its language and
+Opening the system translation sheet starts a request with the app's configured
+engine, including a cloud engine when selected, and respects the app's
+on-device-only policy. When no engine is configured, the sheet uses the on-device
+engine; it never silently selects a cloud service. Its language and
 engine choices apply to the current sheet only. Selection, language, engine,
 and privacy changes invalidate previous output; stopped, failed, or partial
 output cannot be returned as replacement text. Dismissal cancels ongoing work.
@@ -75,6 +79,19 @@ article sample uses `finish(replacingWithTranslation:)`; the implementation uses
 the actual installed SDK signature.
 
 ## Validation
+
+On 2026-11-06, nine simulator tests passed for shared settings and selection
+translation, including automatic start, request deduplication, stop, language
+changes, empty input, stale responses, and cloud-policy enforcement. The iOS
+workspace now uses a scrolling layout and native bottom toolbar. Three iPhone
+simulator UI flows passed: keyboard Translate and error/settings recovery,
+history/settings navigation, and bottom image controls plus the history-clear
+confirmation (cancelled without deleting history). The native toolbar flow was
+rerun after the final styling change. iOS simulator, unsigned iOS device SDK, and
+macOS builds passed. Xcode previews verified the workspace in light/dark appearance and
+larger Dynamic Type, plus a temporary app-hosted copy of the extension's content
+with fixture translations (Xcode does not support JIT previews for this extension
+type). The actual host sheet still needs physical-device acceptance testing.
 
 On 2026-10-24, an automatically signed iOS device SDK build passed with team
 `C2RH9KA3U2` and the team-derived bundle identifiers. The app, Safari extension,

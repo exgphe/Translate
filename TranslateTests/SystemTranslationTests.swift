@@ -106,6 +106,58 @@ struct SystemTranslationLifecycleTests {
         #expect(model.completedText == "请在周四带上签好的表格。")
     }
 
+    @Test func automaticTranslationStartsOnceAndDoesNotRestartAfterStopping() async throws {
+        let provider = ControlledSelectionProvider()
+        let model = model(for: provider)
+        model.translateAutomatically(using: provider)
+        try await wait { provider.requestCount == 1 }
+        model.translateAutomatically(using: provider)
+        #expect(provider.requestCount == 1)
+        model.cancel()
+        model.translateAutomatically(using: provider)
+        #expect(!model.isTranslating)
+        #expect(provider.requestCount == 1)
+        try provider.complete("Late result")
+        #expect(model.completedText == nil)
+    }
+
+    @Test func changedLanguageAutomaticallyTranslatesAndRejectsOldResponse() async throws {
+        let oldProvider = ControlledSelectionProvider()
+        let model = model(for: oldProvider)
+        model.translateAutomatically(using: oldProvider)
+        try await wait { oldProvider.requestCount == 1 }
+        model.targetLanguage = .japanese
+        let newProvider = ControlledSelectionProvider()
+        model.translateAutomatically(using: newProvider)
+        try await wait { newProvider.requestCount == 1 }
+        #expect(newProvider.requests.withLock { $0.last?.targetLanguage } == .japanese)
+        try oldProvider.complete("Stale result")
+        try newProvider.complete("木曜日に書類を持ってきてください。")
+        try await wait { !model.isTranslating }
+        #expect(model.text == "木曜日に書類を持ってきてください。")
+        #expect(model.completedText == model.text)
+        model.translateAutomatically(using: newProvider)
+        #expect(!model.isTranslating)
+        #expect(newProvider.requestCount == 1)
+    }
+
+    @Test func automaticTranslationSkipsEmptyInputAndPreservesCloudPolicy() async throws {
+        let provider = ControlledSelectionProvider(location: .cloud)
+        let model = model(for: provider)
+        model.input = " \n "
+        model.translateAutomatically(using: provider)
+        #expect(!model.isTranslating)
+        #expect(provider.requestCount == 0)
+        model.input = "Translate this selection."
+        model.networkPolicy = .onDeviceOnly
+        model.translateAutomatically(using: provider)
+        try await wait { !model.isTranslating }
+        #expect(provider.requestCount == 0)
+        #expect(model.error != nil)
+        model.translateAutomatically(using: provider)
+        #expect(!model.isTranslating)
+    }
+
     @Test func changedSelectionRejectsLateCompletion() async throws {
         let oldProvider = ControlledSelectionProvider()
         let model = model(for: oldProvider)
